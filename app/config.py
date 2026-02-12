@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.app_env.strip().lower() == "production"
 
+    @staticmethod
+    def _contains_placeholder(value: str) -> bool:
+        return "replace-with" in value.strip().lower()
+
     def production_safety_errors(self) -> list[str]:
         if not self.is_production():
             return []
@@ -85,6 +89,21 @@ class Settings(BaseSettings):
 
         if self.database_url.strip().lower().startswith("sqlite"):
             errors.append("AGENT_HUB_DATABASE_URL must not use sqlite in production")
+
+        if self._contains_placeholder(self.api_keys):
+            errors.append("AGENT_HUB_API_KEYS must not use placeholder values in production")
+
+        if self._contains_placeholder(self.jwt_secret):
+            errors.append("AGENT_HUB_JWT_SECRET must not use placeholder values in production")
+
+        if self._contains_placeholder(self.github_webhook_secret):
+            errors.append("AGENT_HUB_GITHUB_WEBHOOK_SECRET must not use placeholder values in production")
+
+        if self._contains_placeholder(self.metrics_bearer_token):
+            errors.append("AGENT_HUB_METRICS_BEARER_TOKEN must not use placeholder values in production")
+
+        if self._contains_placeholder(self.database_url):
+            errors.append("AGENT_HUB_DATABASE_URL must not use placeholder values in production")
 
         if self.rate_limit_trust_proxy_headers and not self.parsed_trusted_proxy_ips():
             errors.append("AGENT_HUB_TRUSTED_PROXY_IPS must be configured when trusting proxy headers")

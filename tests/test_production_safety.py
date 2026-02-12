@@ -81,3 +81,19 @@ def test_production_safety_errors_require_trusted_proxies_when_forwarded_headers
     )
     errors = settings.production_safety_errors()
     assert any("AGENT_HUB_TRUSTED_PROXY_IPS" in item for item in errors)
+
+
+def test_production_safety_errors_reject_placeholder_values() -> None:
+    settings = _hardened_production_settings(
+        api_keys="replace-with-real-api-key",
+        jwt_secret="replace-with-strong-32-plus-char-jwt-secret",
+        github_webhook_secret="replace-with-github-webhook-secret",
+        metrics_bearer_token="replace-with-long-prometheus-bearer-token",
+        database_url="postgresql+psycopg://agent_hub:replace-with-password@postgres:5432/agent_hub",
+    )
+    errors = settings.production_safety_errors()
+    assert any("AGENT_HUB_API_KEYS must not use placeholder" in item for item in errors)
+    assert any("AGENT_HUB_JWT_SECRET must not use placeholder" in item for item in errors)
+    assert any("AGENT_HUB_GITHUB_WEBHOOK_SECRET must not use placeholder" in item for item in errors)
+    assert any("AGENT_HUB_METRICS_BEARER_TOKEN must not use placeholder" in item for item in errors)
+    assert any("AGENT_HUB_DATABASE_URL must not use placeholder" in item for item in errors)

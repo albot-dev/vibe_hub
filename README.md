@@ -176,7 +176,7 @@ curl -sX POST http://127.0.0.1:8000/auth/token \
 - `AGENT_HUB_METRICS_BEARER_TOKEN`: bearer token used to access `/metrics`
 - `AGENT_HUB_GITHUB_WEBHOOK_AUTO_ENQUEUE`: auto-enqueue autopilot job for `issues:opened` webhooks (`0` default)
 
-When `AGENT_HUB_APP_ENV=production`, startup fails fast if critical safety controls are missing (API keys, write/read role auth, JWT secret, webhook secret, metrics auth token, non-sqlite DB, local-path repo access disabled, and proxy allowlist when trusted headers are enabled).
+When `AGENT_HUB_APP_ENV=production`, startup fails fast if critical safety controls are missing (API keys, write/read role auth, JWT secret, webhook secret, metrics auth token, non-sqlite DB, local-path repo access disabled, proxy allowlist when trusted headers are enabled, and placeholder `replace-with` secrets).
 
 ## GitHub Webhooks
 
