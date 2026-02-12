@@ -72,3 +72,13 @@ groups:
         annotations:
           summary: "Rate-limit rejections are elevated"
           description: "More than 100 write requests were rate-limited in the last 15 minutes."
+
+      - alert: AgentHubWebhookDeliveryFailuresIncreasing
+        expr: increase(agent_hub_webhook_deliveries_failed_total[15m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: agent-hub
+        annotations:
+          summary: "GitHub webhook delivery failures are increasing"
+          description: "More than 5 webhook deliveries failed processing in the last 15 minutes."

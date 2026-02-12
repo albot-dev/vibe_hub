@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+import app.github_webhooks as github_webhooks
 import app.main as app_main
 from app import models
 from app.db import Base, get_session
@@ -368,3 +369,82 @@ def test_github_webhook_delivery_records_persist_for_processed_and_ignored(
     assert ignored_record.project_id is None
     assert ignored_record.issue_number == 12
     assert ignored_record.reason == "No supported command found"
+
+
+def test_github_webhook_invalid_payload_marks_delivery_failed(
+    client: tuple[TestClient, sessionmaker],
+) -> None:
+    test_client, session_factory = client
+
+    response = test_client.post(
+        "/webhooks/github",
+        json={
+            "action": "opened",
+            "repository": {"full_name": "acme/invalid-payload-demo"},
+        },
+        headers={
+            "X-GitHub-Event": "issues",
+            "X-GitHub-Delivery": "delivery-invalid-payload-failure",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid issues webhook payload"
+
+    with session_factory() as db:
+        delivery = db.scalar(
+            select(models.GitHubWebhookDelivery).where(
+                models.GitHubWebhookDelivery.delivery_id == "delivery-invalid-payload-failure"
+            )
+        )
+    assert delivery is not None
+    assert delivery.event == "issues"
+    assert delivery.action == "failed"
+    assert delivery.reason == "Invalid issues webhook payload"
+
+    metrics = test_client.get("/metrics")
+    assert metrics.status_code == 200
+    line = next(
+        (raw for raw in metrics.text.splitlines() if raw.startswith("agent_hub_webhook_deliveries_failed_total ")),
+        "",
+    )
+    assert line == "agent_hub_webhook_deliveries_failed_total 1"
+
+
+def test_github_webhook_unexpected_handler_error_marks_delivery_failed(
+    client: tuple[TestClient, sessionmaker],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    test_client, session_factory = client
+    long_message = "handler failure " * 80
+
+    def _raise_handler_failure(db, payload):  # noqa: ARG001
+        raise RuntimeError(long_message)
+
+    monkeypatch.setattr(github_webhooks, "_handle_issues_event", _raise_handler_failure)
+
+    with pytest.raises(RuntimeError, match="handler failure"):
+        test_client.post(
+            "/webhooks/github",
+            json={
+                "action": "opened",
+                "repository": {"full_name": "acme/unexpected-error-demo"},
+                "issue": {"number": 25, "title": "Trigger crash"},
+            },
+            headers={
+                "X-GitHub-Event": "issues",
+                "X-GitHub-Delivery": "delivery-unexpected-handler-failure",
+            },
+        )
+
+    with session_factory() as db:
+        delivery = db.scalar(
+            select(models.GitHubWebhookDelivery).where(
+                models.GitHubWebhookDelivery.delivery_id == "delivery-unexpected-handler-failure"
+            )
+        )
+    assert delivery is not None
+    assert delivery.event == "issues"
+    assert delivery.action == "failed"
+    assert delivery.reason.startswith("RuntimeError: handler failure")
+    assert len(delivery.reason) <= 300

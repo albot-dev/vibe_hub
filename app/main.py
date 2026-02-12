@@ -389,6 +389,14 @@ def metrics(
         )
         or 0
     )
+    failed_webhook_delivery_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(models.GitHubWebhookDelivery)
+            .where(models.GitHubWebhookDelivery.action == "failed")
+        )
+        or 0
+    )
     stale_recovered_count = _job_worker.stale_recovered_count if _job_worker is not None else 0
     worker_loop_error_count = _job_worker.loop_error_count if _job_worker is not None else 0
     rate_limit_rejections_total = _read_rate_limit_rejections_total()
@@ -424,6 +432,9 @@ def metrics(
         "# HELP agent_hub_autopilot_jobs_failed Total failed autopilot jobs",
         "# TYPE agent_hub_autopilot_jobs_failed gauge",
         f"agent_hub_autopilot_jobs_failed {failed_job_count}",
+        "# HELP agent_hub_webhook_deliveries_failed_total Total failed GitHub webhook deliveries",
+        "# TYPE agent_hub_webhook_deliveries_failed_total counter",
+        f"agent_hub_webhook_deliveries_failed_total {failed_webhook_delivery_count}",
         "# HELP agent_hub_autopilot_jobs_stale_recovered_total Total stale running jobs recovered by worker",
         "# TYPE agent_hub_autopilot_jobs_stale_recovered_total counter",
         f"agent_hub_autopilot_jobs_stale_recovered_total {stale_recovered_count}",

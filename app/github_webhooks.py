@@ -20,6 +20,41 @@ from app.orchestration import AutopilotService
 
 
 _AGENT_RUN_COMMAND = re.compile(r"(?mi)^\s*/agent run(?:\s+.*)?$")
+_MAX_FAILURE_REASON_LENGTH = 300
+
+
+def _bound_reason_message(message: str) -> str:
+    normalized = " ".join(message.split())
+    if len(normalized) <= _MAX_FAILURE_REASON_LENGTH:
+        return normalized
+    return normalized[: _MAX_FAILURE_REASON_LENGTH - 3].rstrip() + "..."
+
+
+def _failure_reason_from_exception(error: Exception) -> str:
+    if isinstance(error, HTTPException):
+        detail = error.detail
+        if isinstance(detail, str):
+            message = detail
+        elif detail is None:
+            message = f"HTTP {error.status_code}"
+        else:
+            message = str(detail)
+        fallback = f"HTTP {error.status_code}"
+        return _bound_reason_message(message or fallback)
+
+    message = str(error).strip()
+    if message:
+        return _bound_reason_message(f"{error.__class__.__name__}: {message}")
+    return _bound_reason_message(error.__class__.__name__)
+
+
+def _mark_delivery_failed(*, db: Session, delivery_id: int, error: Exception) -> None:
+    delivery = db.get(models.GitHubWebhookDelivery, delivery_id)
+    if delivery is None:
+        return
+    delivery.action = "failed"
+    delivery.reason = _failure_reason_from_exception(error)
+    db.commit()
 
 
 def _verify_signature_if_configured(raw_payload: bytes, signature_256: str | None) -> None:
@@ -264,7 +299,7 @@ async def handle_github_webhook(
     )
     db.add(delivery)
     try:
-        db.flush()
+        db.commit()
     except IntegrityError:
         db.rollback()
         existing = db.scalar(
@@ -280,18 +315,28 @@ async def handle_github_webhook(
             event=event_label,
             reason="Duplicate delivery",
         )
+    db.refresh(delivery)
 
-    payload = _load_payload(raw_payload)
-    if normalized_event == "issues":
-        response = _handle_issues_event(db, payload)
-    elif normalized_event == "issue_comment":
-        response = _handle_issue_comment_event(db, payload)
-    else:
-        response = schemas.GitHubWebhookResponse(
-            action="ignored",
-            event=event_label,
-            reason="Unsupported event type",
-        )
+    try:
+        payload = _load_payload(raw_payload)
+        if normalized_event == "issues":
+            response = _handle_issues_event(db, payload)
+        elif normalized_event == "issue_comment":
+            response = _handle_issue_comment_event(db, payload)
+        else:
+            response = schemas.GitHubWebhookResponse(
+                action="ignored",
+                event=event_label,
+                reason="Unsupported event type",
+            )
+    except HTTPException as exc:
+        db.rollback()
+        _mark_delivery_failed(db=db, delivery_id=delivery.id, error=exc)
+        raise
+    except Exception as exc:
+        db.rollback()
+        _mark_delivery_failed(db=db, delivery_id=delivery.id, error=exc)
+        raise
 
     delivery.event = response.event
     delivery.action = response.action
