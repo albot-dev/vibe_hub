@@ -1,0 +1,54 @@
+groups:
+  - name: agent-hub-api
+    rules:
+      - alert: AgentHubAPIDown
+        expr: up{job="agent-hub"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: agent-hub
+        annotations:
+          summary: "Agent Hub API is down"
+          description: "Prometheus cannot scrape the agent-hub /metrics endpoint for at least 2 minutes."
+
+  - name: agent-hub-job-queue-risk
+    rules:
+      - alert: AgentHubJobQueueBacklogHigh
+        expr: agent_hub_autopilot_jobs_queued > 25
+        for: 10m
+        labels:
+          severity: warning
+          service: agent-hub
+        annotations:
+          summary: "Autopilot job queue backlog is high"
+          description: "Queued autopilot jobs stayed above 25 for at least 10 minutes."
+
+      - alert: AgentHubJobQueueWorkerStalled
+        expr: agent_hub_autopilot_jobs_queued > 0 and agent_hub_autopilot_jobs_running == 0
+        for: 10m
+        labels:
+          severity: critical
+          service: agent-hub
+        annotations:
+          summary: "Autopilot worker appears stalled"
+          description: "There are queued jobs but no running jobs for at least 10 minutes."
+
+      - alert: AgentHubJobFailuresHigh
+        expr: delta(agent_hub_autopilot_jobs_failed[15m]) > 5
+        for: 15m
+        labels:
+          severity: warning
+          service: agent-hub
+        annotations:
+          summary: "Autopilot job failures accumulated"
+          description: "Failed autopilot jobs increased by more than 5 within 15 minutes."
+
+      - alert: AgentHubStaleRecoveriesIncreasing
+        expr: increase(agent_hub_autopilot_jobs_stale_recovered_total[30m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: agent-hub
+        annotations:
+          summary: "Stale job recoveries detected"
+          description: "The worker recovered one or more stale running jobs in the last 30 minutes."

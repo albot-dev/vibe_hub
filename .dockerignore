@@ -1,0 +1,9 @@
+.venv
+.pytest_cache
+__pycache__
+*.pyc
+agent_hub.db
+.agent_workspaces
+tests
+.vibe
+.git

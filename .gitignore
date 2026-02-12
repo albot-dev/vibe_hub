@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.agent_workspaces/
+backups/
+.env
+.env.*
+!.env.example
+agent_hub.db
+
+.vibe/

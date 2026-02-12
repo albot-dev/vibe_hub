@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE in .env}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agent_hub}
+      POSTGRES_USER: ${POSTGRES_USER:-agent_hub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  app:
+    image: ${AGENT_HUB_IMAGE:?set AGENT_HUB_IMAGE in .env}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      AGENT_HUB_DATABASE_URL: ${AGENT_HUB_DATABASE_URL:?set AGENT_HUB_DATABASE_URL in .env}
+    ports:
+      - "${AGENT_HUB_BIND_HOST:-127.0.0.1}:${AGENT_HUB_PORT:-8000}:8000"
+    volumes:
+      - agent_workspaces:/app/.agent_workspaces
+    command:
+      - /bin/sh
+      - -c
+      - uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import sys,urllib.request;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).getcode()==200 else 1)\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:?set PROMETHEUS_IMAGE in .env}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      app:
+        condition: service_healthy
+    env_file:
+      - .env
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        : "${AGENT_HUB_METRICS_BEARER_TOKEN:?set AGENT_HUB_METRICS_BEARER_TOKEN in .env}"
+        printf '%s' "${AGENT_HUB_METRICS_BEARER_TOKEN}" >/tmp/agent_hub_metrics_bearer_token
+        exec /bin/prometheus \
+          --config.file=/etc/prometheus/prometheus.yml \
+          --storage.tsdb.path=/prometheus \
+          --storage.tsdb.retention.time=15d
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+
+volumes:
+  postgres_data:
+  agent_workspaces:
+  prometheus_data:

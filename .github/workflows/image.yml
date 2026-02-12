@@ -1,0 +1,162 @@
+name: Image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
+      digest: ${{ steps.publish.outputs.digest }}
+    steps:
+      - name: Checkout source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+      - name: Ensure tag points to main lineage
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"
+
+      - name: Prepare image metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          short_sha="${GITHUB_SHA::12}"
+
+          tags=()
+          tags+=("${image}:sha-${short_sha}")
+
+          if [[ "${GITHUB_REF_TYPE}" == "branch" && "${GITHUB_REF_NAME}" == "main" ]]; then
+            tags+=("${image}:main")
+            tags+=("${image}:latest")
+          fi
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tags+=("${image}:${GITHUB_REF_NAME}")
+          fi
+
+          {
+            echo "image=${image}"
+            echo "tags<<EOF"
+            printf "%s\n" "${tags[@]}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Login to GHCR
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push image
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${{ steps.meta.outputs.image }}"
+
+          readarray -t tags <<<"${{ steps.meta.outputs.tags }}"
+          tag_args=()
+          for tag in "${tags[@]}"; do
+            [[ -n "${tag}" ]] || continue
+            tag_args+=("--tag" "${tag}")
+          done
+
+          docker buildx create --name agent-hub-builder --driver docker-container --use
+          docker buildx inspect --bootstrap
+          docker buildx build \
+            --file Dockerfile \
+            --platform linux/amd64 \
+            --push \
+            --provenance=true \
+            --sbom=true \
+            --iidfile /tmp/agent-hub-image.iid \
+            "${tag_args[@]}" \
+            .
+
+          digest="$(cat /tmp/agent-hub-image.iid)"
+          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "### Deployment image references"
+            echo ""
+            echo "- Digest: \`${digest}\`"
+            echo "- Primary: \`AGENT_HUB_IMAGE=${image}@${digest}\`"
+            echo "- Tag aliases from this run:"
+            for tag in "${tags[@]}"; do
+              [[ -n "${tag}" ]] || continue
+              echo "  - \`${tag}@${digest}\`"
+            done
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Install cosign
+        shell: bash
+        run: |
+          set -euo pipefail
+          cosign_version="v2.2.4"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "${tmpdir}"' EXIT
+
+          curl -fsSLo "${tmpdir}/cosign-linux-amd64" \
+            "https://github.com/sigstore/cosign/releases/download/${cosign_version}/cosign-linux-amd64"
+          curl -fsSLo "${tmpdir}/cosign_checksums.txt" \
+            "https://github.com/sigstore/cosign/releases/download/${cosign_version}/cosign_checksums.txt"
+
+          expected_checksum="$(awk '$2=="cosign-linux-amd64"{print $1}' "${tmpdir}/cosign_checksums.txt")"
+          [[ -n "${expected_checksum}" ]]
+          echo "${expected_checksum}  ${tmpdir}/cosign-linux-amd64" | sha256sum -c -
+
+          install_dir="${RUNNER_TEMP}/bin"
+          mkdir -p "${install_dir}"
+          install -m 0755 "${tmpdir}/cosign-linux-amd64" "${install_dir}/cosign"
+          echo "${install_dir}" >> "${GITHUB_PATH}"
+
+          "${install_dir}/cosign" version
+
+      - name: Sign pushed image digest (keyless)
+        shell: bash
+        env:
+          IMAGE: ${{ steps.publish.outputs.image }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Verify image signature
+        shell: bash
+        env:
+          IMAGE: ${{ steps.publish.outputs.image }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          repo_regex="$(printf '%s' "${GITHUB_REPOSITORY}" | sed -e 's/[][(){}.^$*+?|\\]/\\&/g')"
+          identity_regex="^https://github\\.com/${repo_regex}/\\.github/workflows/image\\.yml@refs/(heads/main|tags/v.*)$"
+
+          cosign verify "${IMAGE}@${DIGEST}" \
+            --certificate-identity-regexp "${identity_regex}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            >/dev/null
