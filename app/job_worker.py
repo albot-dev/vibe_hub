@@ -5,6 +5,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable
+import logging
 
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,8 @@ from app import models
 from app.job_queue import JobQueueService
 from app.orchestration import AutopilotService
 from app.providers import get_provider
+
+logger = logging.getLogger("agent_hub.job_worker")
 
 
 class AutopilotJobWorker:
@@ -31,6 +34,7 @@ class AutopilotJobWorker:
         self._thread: threading.Thread | None = None
         self._metrics_lock = threading.Lock()
         self._stale_recovered_count = 0
+        self._loop_error_count = 0
 
     @property
     def is_running(self) -> bool:
@@ -41,11 +45,20 @@ class AutopilotJobWorker:
         with self._metrics_lock:
             return self._stale_recovered_count
 
+    @property
+    def loop_error_count(self) -> int:
+        with self._metrics_lock:
+            return self._loop_error_count
+
     def _record_stale_recovered(self, count: int) -> None:
         if count <= 0:
             return
         with self._metrics_lock:
             self._stale_recovered_count += count
+
+    def _record_loop_error(self) -> None:
+        with self._metrics_lock:
+            self._loop_error_count += 1
 
     def start(self) -> None:
         if self.is_running:
@@ -102,7 +115,14 @@ class AutopilotJobWorker:
 
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
-            processed = self.run_once()
+            try:
+                processed = self.run_once()
+            except Exception:
+                self._record_loop_error()
+                logger.exception("autopilot_job_worker_loop_error")
+                self._stop_event.wait(self.poll_interval_sec)
+                continue
+
             if not processed:
                 self._stop_event.wait(self.poll_interval_sec)
             else:

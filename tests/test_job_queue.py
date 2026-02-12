@@ -324,3 +324,28 @@ def test_job_worker_run_once_recovers_stale_jobs(tmp_path: Path) -> None:
         assert job.status == models.JobStatus.failed
         assert job.finished_at is not None
         assert "Recovered stale running job" in job.error_message
+
+
+def test_job_worker_loop_recovers_from_run_once_exception(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    session_factory = _new_session_factory(tmp_path)
+    worker = AutopilotJobWorker(
+        session_factory=session_factory,
+        poll_interval_sec=0.001,
+        worker_id="worker-test",
+    )
+
+    calls = {"count": 0}
+
+    def flaky_run_once() -> bool:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("boom")
+        worker._stop_event.set()
+        return False
+
+    monkeypatch.setattr(worker, "run_once", flaky_run_once)
+
+    worker._run_loop()
+
+    assert calls["count"] == 2
+    assert worker.loop_error_count == 1

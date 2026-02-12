@@ -129,6 +129,7 @@ def test_autopilot_happy_path(client: TestClient, tmp_path: Path, local_repo: st
     assert metrics_resp.status_code == 200
     assert "agent_hub_projects_total" in metrics_resp.text
     assert "agent_hub_autopilot_jobs_stale_recovered_total" in metrics_resp.text
+    assert "agent_hub_autopilot_job_worker_loop_errors_total" in metrics_resp.text
 
 
 def test_project_name_conflict(client: TestClient, local_repo: str) -> None:

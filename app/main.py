@@ -374,6 +374,7 @@ def metrics(
         or 0
     )
     stale_recovered_count = _job_worker.stale_recovered_count if _job_worker is not None else 0
+    worker_loop_error_count = _job_worker.loop_error_count if _job_worker is not None else 0
 
     lines = [
         "# HELP agent_hub_projects_total Total number of projects",
@@ -409,6 +410,9 @@ def metrics(
         "# HELP agent_hub_autopilot_jobs_stale_recovered_total Total stale running jobs recovered by worker",
         "# TYPE agent_hub_autopilot_jobs_stale_recovered_total counter",
         f"agent_hub_autopilot_jobs_stale_recovered_total {stale_recovered_count}",
+        "# HELP agent_hub_autopilot_job_worker_loop_errors_total Total uncaught worker loop errors",
+        "# TYPE agent_hub_autopilot_job_worker_loop_errors_total counter",
+        f"agent_hub_autopilot_job_worker_loop_errors_total {worker_loop_error_count}",
     ]
     return "\n".join(lines) + "\n"
 

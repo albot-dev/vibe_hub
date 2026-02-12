@@ -52,3 +52,13 @@ groups:
         annotations:
           summary: "Stale job recoveries detected"
           description: "The worker recovered one or more stale running jobs in the last 30 minutes."
+
+      - alert: AgentHubWorkerLoopErrorsIncreasing
+        expr: increase(agent_hub_autopilot_job_worker_loop_errors_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: agent-hub
+        annotations:
+          summary: "Autopilot worker loop errors detected"
+          description: "The worker loop hit one or more uncaught runtime errors in the last 15 minutes."
