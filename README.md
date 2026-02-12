@@ -248,6 +248,7 @@ curl -sX POST http://127.0.0.1:8000/projects/1/jobs/1/retry
 make install
 make test
 make smoke
+make check-large-files
 bash -n scripts/*.sh
 make run
 make docker-build
@@ -273,6 +274,10 @@ Run `make smoke` to execute an end-to-end API smoke flow with temporary infrastr
 - starts the API in secure mode (API key + JWT role enforcement)
 - validates project/bootstrap/objective/autopilot/job-retry flows
 - validates GitHub webhook signature handling + delivery-id deduplication
+
+## Repository Hygiene
+
+Run `make check-large-files` to fail fast if any tracked file exceeds 95 MB (GitHub push-safe guardrail).
 
 ## Production Compose Deployment
 
