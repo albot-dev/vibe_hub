@@ -241,6 +241,7 @@ curl -sX POST http://127.0.0.1:8000/projects/1/jobs/1/retry
 - `GET /metrics`
   - Includes `agent_hub_autopilot_jobs_stale_recovered_total`
   - Includes `agent_hub_autopilot_job_worker_loop_errors_total`
+  - Includes `agent_hub_rate_limit_rejections_total`
 
 ## Development Commands
 

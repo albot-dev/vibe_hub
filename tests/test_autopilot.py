@@ -375,6 +375,16 @@ def test_rate_limit_restricts_write_endpoints(client: TestClient, local_repo: st
     )
     assert second.status_code == 429
 
+    metrics = client.get("/metrics")
+    assert metrics.status_code == 200
+    line = next(
+        (raw for raw in metrics.text.splitlines() if raw.startswith("agent_hub_rate_limit_rejections_total ")),
+        "",
+    )
+    assert line
+    value = float(line.split(" ", 1)[1])
+    assert value >= 1.0
+
 
 def test_rate_limit_uses_forwarded_for_when_enabled(
     client: TestClient,

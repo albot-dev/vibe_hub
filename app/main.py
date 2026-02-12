@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import ipaddress
 import logging
+import threading
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -41,6 +42,8 @@ from app.security import require_write_access
 logger = logging.getLogger("agent_hub.api")
 _rate_limiter: InMemoryRateLimiter | None = None
 _rate_limiter_rpm: int | None = None
+_rate_limit_rejections_total = 0
+_rate_limit_rejections_lock = threading.Lock()
 _job_worker: AutopilotJobWorker | None = None
 _READ_AUTH_EXEMPT_PATH_PREFIXES = ("/docs", "/redoc", "/openapi.json")
 _READ_AUTH_EXEMPT_PATHS = {
@@ -152,6 +155,18 @@ def _enforce_metrics_token_if_enabled(*, settings, authorization: str | None) ->
         )
 
 
+def _record_rate_limit_rejection() -> None:
+    global _rate_limit_rejections_total
+
+    with _rate_limit_rejections_lock:
+        _rate_limit_rejections_total += 1
+
+
+def _read_rate_limit_rejections_total() -> int:
+    with _rate_limit_rejections_lock:
+        return _rate_limit_rejections_total
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     global _job_worker
@@ -217,6 +232,7 @@ async def request_context_middleware(request: Request, call_next):
         rate_limit_key = _rate_limit_key_for_request(request, settings)
         decision = _rate_limiter.check(rate_limit_key)
         if not decision.allowed:
+            _record_rate_limit_rejection()
             return JSONResponse(
                 status_code=429,
                 content={"detail": "Rate limit exceeded"},
@@ -375,6 +391,7 @@ def metrics(
     )
     stale_recovered_count = _job_worker.stale_recovered_count if _job_worker is not None else 0
     worker_loop_error_count = _job_worker.loop_error_count if _job_worker is not None else 0
+    rate_limit_rejections_total = _read_rate_limit_rejections_total()
 
     lines = [
         "# HELP agent_hub_projects_total Total number of projects",
@@ -413,6 +430,9 @@ def metrics(
         "# HELP agent_hub_autopilot_job_worker_loop_errors_total Total uncaught worker loop errors",
         "# TYPE agent_hub_autopilot_job_worker_loop_errors_total counter",
         f"agent_hub_autopilot_job_worker_loop_errors_total {worker_loop_error_count}",
+        "# HELP agent_hub_rate_limit_rejections_total Total write requests rejected by rate limiting",
+        "# TYPE agent_hub_rate_limit_rejections_total counter",
+        f"agent_hub_rate_limit_rejections_total {rate_limit_rejections_total}",
     ]
     return "\n".join(lines) + "\n"
 
