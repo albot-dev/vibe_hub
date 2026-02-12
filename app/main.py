@@ -28,6 +28,7 @@ from app.config import get_settings
 from app.db import SessionLocal, get_session, init_db
 from app.github_sync import GitHubAPIError, GitHubSyncAdapter, parse_github_repo
 from app.github_webhooks import handle_github_webhook
+from app.http_auth import extract_bearer_token
 from app.job_queue import JobQueueService
 from app.job_worker import AutopilotJobWorker
 from app.orchestration import AutopilotService
@@ -74,7 +75,7 @@ def _enforce_read_roles_if_enabled(request: Request, settings) -> JSONResponse |
     if _is_read_auth_exempt_path(request.url.path):
         return None
 
-    token = _extract_bearer_token(request.headers.get("Authorization"))
+    token = extract_bearer_token(request.headers.get("Authorization"))
     if token is None:
         return JSONResponse(
             status_code=401,
@@ -142,7 +143,7 @@ def _enforce_metrics_token_if_enabled(*, settings, authorization: str | None) ->
     if len(expected) < 24:
         raise HTTPException(status_code=500, detail="Metrics auth is enabled but token is not configured")
 
-    token = _extract_bearer_token(authorization)
+    token = extract_bearer_token(authorization)
     if token is None or not hmac.compare_digest(token, expected):
         raise HTTPException(
             status_code=401,
@@ -453,18 +454,6 @@ def _extract_pr_metadata_value(description: str, key: str) -> str | None:
     return None
 
 
-def _extract_bearer_token(authorization: str | None) -> str | None:
-    if not authorization:
-        return None
-    parts = authorization.strip().split(" ", 1)
-    if len(parts) != 2:
-        return None
-    scheme, token = parts[0].strip().lower(), parts[1].strip()
-    if scheme != "bearer" or not token:
-        return None
-    return token
-
-
 def _enforce_write_roles_if_enabled(
     authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> None:
@@ -472,7 +461,7 @@ def _enforce_write_roles_if_enabled(
     if not settings.auth_require_roles:
         return
 
-    token = _extract_bearer_token(authorization)
+    token = extract_bearer_token(authorization)
     if token is None:
         raise HTTPException(status_code=401, detail="Missing bearer token")
 

@@ -3,22 +3,7 @@ from __future__ import annotations
 from fastapi import Header, HTTPException
 
 from app.config import get_settings
-
-
-
-def _extract_bearer_token(authorization: str | None) -> str | None:
-    if not authorization:
-        return None
-    value = authorization.strip()
-    if not value:
-        return None
-    parts = value.split(" ", 1)
-    if len(parts) != 2:
-        return None
-    scheme, token = parts[0].strip().lower(), parts[1].strip()
-    if scheme != "bearer" or not token:
-        return None
-    return token
+from app.http_auth import extract_bearer_token
 
 
 
@@ -34,6 +19,6 @@ def require_write_access(
     if not keys:
         raise HTTPException(status_code=500, detail="API key auth enabled but no keys configured")
 
-    provided_key = (x_api_key or "").strip() or (_extract_bearer_token(authorization) or "").strip()
+    provided_key = (x_api_key or "").strip() or (extract_bearer_token(authorization) or "").strip()
     if provided_key not in keys:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")

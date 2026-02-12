@@ -12,20 +12,7 @@ from app.auth import (
     TokenMalformedError,
     verify_access_token,
 )
-
-
-def _extract_bearer_token(authorization: str | None) -> str | None:
-    if not authorization:
-        return None
-
-    parts = authorization.strip().split(" ", 1)
-    if len(parts) != 2:
-        return None
-
-    scheme, token = parts[0].strip().lower(), parts[1].strip()
-    if scheme != "bearer" or not token:
-        return None
-    return token
+from app.http_auth import extract_bearer_token
 
 
 def _bearer_401(detail: str) -> HTTPException:
@@ -37,7 +24,7 @@ def _bearer_401(detail: str) -> HTTPException:
 
 
 def _resolve_current_principal(*, optional: bool, authorization: str | None) -> AuthPrincipal | None:
-    token = _extract_bearer_token(authorization)
+    token = extract_bearer_token(authorization)
     if token is None:
         if optional:
             return None

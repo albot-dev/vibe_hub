@@ -159,6 +159,33 @@ class AutopilotService:
         candidates = grouped_agents.get(role, [])
         return candidates[0] if candidates else None
 
+    def _create_role_review(
+        self,
+        *,
+        pull_request_id: int,
+        work_item: models.WorkItem,
+        agent: models.Agent | None,
+        role: models.AgentRole,
+        checks_passed: bool,
+    ) -> models.Review | None:
+        if agent is None:
+            return None
+
+        outcome = self.provider.review_pull_request(
+            project=self.project,
+            work_item=work_item,
+            role=role,
+            checks_passed=checks_passed,
+        )
+        review = models.Review(
+            pull_request_id=pull_request_id,
+            agent_id=agent.id,
+            decision=outcome.decision,
+            comment=outcome.comment,
+        )
+        self.db.add(review)
+        return review
+
     def _run_item(
         self,
         item: models.WorkItem,
@@ -249,37 +276,25 @@ class AutopilotService:
         tester = self._pick_agent(grouped_agents, models.AgentRole.tester)
 
         if policy.auto_review:
-            if reviewer is not None:
-                outcome = self.provider.review_pull_request(
-                    project=self.project,
-                    work_item=item,
-                    role=models.AgentRole.reviewer,
-                    checks_passed=checks_passed,
-                )
-                review = models.Review(
-                    pull_request_id=pr.id,
-                    agent_id=reviewer.id,
-                    decision=outcome.decision,
-                    comment=outcome.comment,
-                )
-                reviews.append(review)
-                self.db.add(review)
+            reviewer_review = self._create_role_review(
+                pull_request_id=pr.id,
+                work_item=item,
+                agent=reviewer,
+                role=models.AgentRole.reviewer,
+                checks_passed=checks_passed,
+            )
+            if reviewer_review is not None:
+                reviews.append(reviewer_review)
 
-            if tester is not None:
-                outcome = self.provider.review_pull_request(
-                    project=self.project,
-                    work_item=item,
-                    role=models.AgentRole.tester,
-                    checks_passed=checks_passed,
-                )
-                review = models.Review(
-                    pull_request_id=pr.id,
-                    agent_id=tester.id,
-                    decision=outcome.decision,
-                    comment=outcome.comment,
-                )
-                reviews.append(review)
-                self.db.add(review)
+            tester_review = self._create_role_review(
+                pull_request_id=pr.id,
+                work_item=item,
+                agent=tester,
+                role=models.AgentRole.tester,
+                checks_passed=checks_passed,
+            )
+            if tester_review is not None:
+                reviews.append(tester_review)
         else:
             self._log_event(
                 "auto_review_disabled",
