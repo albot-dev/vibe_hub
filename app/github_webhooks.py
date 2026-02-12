@@ -4,9 +4,7 @@ import hashlib
 import hmac
 import json
 import re
-from collections.abc import Iterable
 from typing import Any
-from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 from pydantic import ValidationError
@@ -16,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.config import get_settings
-from app.github_sync import parse_github_repo
+from app.github_repo import canonical_repo_identity, extract_owner_repo, normalize_repo_locator
 from app.job_queue import JobQueueService
 from app.orchestration import AutopilotService
 
@@ -59,72 +57,32 @@ def _load_payload(raw_payload: bytes) -> dict[str, Any]:
     return decoded
 
 
-def _canonical_repo_identity(owner: str, repo: str) -> tuple[str, str]:
-    return owner.strip().lower(), repo.strip().removesuffix(".git").lower()
-
-
-def _extract_owner_repo_from_url(value: str | None) -> tuple[str, str] | None:
-    raw = (value or "").strip()
-    if not raw:
-        return None
-
-    try:
-        owner, repo = parse_github_repo(raw)
-    except ValueError:
-        parsed = urlparse(raw)
-        host = parsed.netloc.strip().lower()
-        parts = [segment for segment in parsed.path.strip("/").split("/") if segment]
-        if host != "api.github.com" or len(parts) < 3 or parts[0].lower() != "repos":
-            return None
-        owner, repo = parts[1], parts[2]
-
-    owner = owner.strip()
-    repo = repo.strip().removesuffix(".git")
-    if not owner or not repo:
-        return None
-    return owner, repo
-
-
 def _collect_repository_identities(repository: schemas.GitHubWebhookRepository) -> set[tuple[str, str]]:
     identities: set[tuple[str, str]] = set()
 
     if repository.full_name and "/" in repository.full_name:
         owner, _, repo = repository.full_name.partition("/")
         if owner and repo:
-            identities.add(_canonical_repo_identity(owner, repo))
+            identities.add(canonical_repo_identity(owner, repo))
 
     owner_login = repository.owner.login if repository.owner is not None else None
     if owner_login and repository.name:
-        identities.add(_canonical_repo_identity(owner_login, repository.name))
+        identities.add(canonical_repo_identity(owner_login, repository.name))
 
-    for candidate in (
-        repository.html_url,
-        repository.clone_url,
-        repository.ssh_url,
-        repository.url,
-    ):
-        owner_repo = _extract_owner_repo_from_url(candidate)
+    for candidate in _repository_url_candidates(repository):
+        owner_repo = extract_owner_repo(candidate)
         if owner_repo is not None:
-            identities.add(_canonical_repo_identity(*owner_repo))
+            identities.add(canonical_repo_identity(*owner_repo))
 
     return identities
 
 
-def _normalize_repo_locator(value: str | None) -> str:
-    normalized = (value or "").strip().lower().rstrip("/")
-    return normalized.removesuffix(".git")
-
-
-def _iter_repository_url_candidates(repository: schemas.GitHubWebhookRepository) -> Iterable[str]:
+def _repository_url_candidates(repository: schemas.GitHubWebhookRepository) -> tuple[str, ...]:
     return (
-        candidate
-        for candidate in (
-            repository.html_url,
-            repository.clone_url,
-            repository.ssh_url,
-            repository.url,
-        )
-        if candidate
+        repository.html_url or "",
+        repository.clone_url or "",
+        repository.ssh_url or "",
+        repository.url or "",
     )
 
 
@@ -139,18 +97,17 @@ def _find_project_for_repository(
     identities = _collect_repository_identities(repository)
     if identities:
         for project in projects:
-            project_identity = _extract_owner_repo_from_url(project.repo_url)
+            project_identity = extract_owner_repo(project.repo_url)
             if project_identity is None:
                 continue
-            if _canonical_repo_identity(*project_identity) in identities:
+            if canonical_repo_identity(*project_identity) in identities:
                 return project
 
     normalized_candidates = {
-        _normalize_repo_locator(candidate)
-        for candidate in _iter_repository_url_candidates(repository)
+        normalize_repo_locator(candidate) for candidate in _repository_url_candidates(repository) if candidate
     }
     for project in projects:
-        if _normalize_repo_locator(project.repo_url) in normalized_candidates:
+        if normalize_repo_locator(project.repo_url) in normalized_candidates:
             return project
 
     return None
