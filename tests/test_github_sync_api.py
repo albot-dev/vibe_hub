@@ -125,3 +125,71 @@ def test_sync_pull_request_to_github_endpoint(client: tuple[TestClient, sessionm
     assert captured["create_pull_request"]["head"] == "agent/1-add-tracing"
     assert "create_issue_comment" in captured
     assert "set_commit_status" in captured
+
+
+def test_sync_pull_request_to_github_uses_failure_status_for_closed_pr(
+    client: tuple[TestClient, sessionmaker],
+) -> None:
+    test_client, session_factory = client
+
+    project_resp = test_client.post(
+        "/projects",
+        json={
+            "name": "github-sync-closed-pr",
+            "repo_url": "https://github.com/acme/example-repo",
+            "default_branch": "main",
+        },
+    )
+    assert project_resp.status_code == 200
+    project_id = project_resp.json()["id"]
+
+    with session_factory() as db:
+        pr = models.PullRequest(
+            project_id=project_id,
+            work_item_id=None,
+            title="[agent] Closed PR status mapping",
+            description="- commit: deadbeef",
+            source_branch="agent/closed",
+            target_branch="main",
+            status=models.PullRequestStatus.closed,
+            checks_passed=False,
+            auto_merge=False,
+            created_by_agent_id=None,
+        )
+        db.add(pr)
+        db.commit()
+        db.refresh(pr)
+        pr_id = pr.id
+
+    captured: dict[str, object] = {}
+
+    class FakeGitHubSyncAdapter:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def create_pull_request(self, **kwargs):
+            return {"number": 88, "html_url": "https://github.com/acme/example-repo/pull/88"}
+
+        def set_commit_status(self, **kwargs):
+            captured["set_commit_status"] = kwargs
+            return {"state": kwargs["state"]}
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(app_main, "GitHubSyncAdapter", FakeGitHubSyncAdapter)
+    try:
+        sync_resp = test_client.post(
+            f"/projects/{project_id}/pull-requests/{pr_id}/github/sync",
+            json={},
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert sync_resp.status_code == 200
+    assert sync_resp.json()["commit_status_state"] == "failure"
+    assert captured["set_commit_status"]["state"] == "failure"

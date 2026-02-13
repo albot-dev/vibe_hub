@@ -547,6 +547,22 @@ def _extract_pr_metadata_value(description: str, key: str) -> str | None:
     return None
 
 
+def _github_commit_status_for_pull_request_status(status: models.PullRequestStatus) -> str:
+    if status == models.PullRequestStatus.merged:
+        return "success"
+    if status == models.PullRequestStatus.closed:
+        return "failure"
+    return "pending"
+
+
+def _gitlab_commit_status_for_pull_request_status(status: models.PullRequestStatus) -> str:
+    if status == models.PullRequestStatus.merged:
+        return "success"
+    if status == models.PullRequestStatus.closed:
+        return "failed"
+    return "pending"
+
+
 def _enforce_write_roles_if_enabled(
     authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> None:
@@ -1061,7 +1077,7 @@ def sync_pull_request_to_github(
                     owner=owner,
                     repo=repo,
                     sha=commit_sha,
-                    state="success" if pull_request.status == models.PullRequestStatus.merged else "pending",
+                    state=_github_commit_status_for_pull_request_status(pull_request.status),
                     context=payload.status_context,
                     description=payload.status_description,
                     target_url=payload.target_url,
@@ -1130,7 +1146,7 @@ def sync_pull_request_to_gitlab(
                 status_payload = gitlab.set_commit_status(
                     project_path=project_path,
                     sha=commit_sha,
-                    state="success" if pull_request.status == models.PullRequestStatus.merged else "pending",
+                    state=_gitlab_commit_status_for_pull_request_status(pull_request.status),
                     context=payload.status_context,
                     description=payload.status_description,
                     target_url=payload.target_url,
