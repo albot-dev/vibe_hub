@@ -21,6 +21,8 @@ from app.orchestration import AutopilotService
 
 _AGENT_RUN_COMMAND = re.compile(r"(?mi)^\s*/agent run(?:\s+.*)?$")
 _MAX_FAILURE_REASON_LENGTH = 300
+_MAX_GITHUB_EVENT_LENGTH = 120
+_MAX_GITHUB_DELIVERY_ID_LENGTH = 255
 
 
 def _bound_reason_message(message: str) -> str:
@@ -297,10 +299,14 @@ async def handle_github_webhook(
     _verify_signature_if_configured(raw_payload, signature_256)
     normalized_event = github_event.strip().lower()
     event_label = normalized_event or github_event
+    if len(event_label) > _MAX_GITHUB_EVENT_LENGTH:
+        raise HTTPException(status_code=400, detail="X-GitHub-Event header too long")
 
     normalized_delivery_id = delivery_id.strip()
     if not normalized_delivery_id:
         raise HTTPException(status_code=400, detail="Missing X-GitHub-Delivery header")
+    if len(normalized_delivery_id) > _MAX_GITHUB_DELIVERY_ID_LENGTH:
+        raise HTTPException(status_code=400, detail="X-GitHub-Delivery header too long")
 
     delivery = models.GitHubWebhookDelivery(
         delivery_id=normalized_delivery_id,

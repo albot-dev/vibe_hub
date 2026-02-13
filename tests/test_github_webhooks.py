@@ -140,6 +140,50 @@ def test_github_webhook_invalid_signature_rejected(
     assert response.json()["detail"] == "Invalid webhook signature"
 
 
+def test_github_webhook_delivery_id_too_long_rejected(
+    client: tuple[TestClient, sessionmaker],
+) -> None:
+    test_client, _ = client
+
+    response = test_client.post(
+        "/webhooks/github",
+        json={
+            "action": "opened",
+            "repository": {"full_name": "acme/widget"},
+            "issue": {"number": 8, "title": "Too long delivery id"},
+        },
+        headers={
+            "X-GitHub-Event": "issues",
+            "X-GitHub-Delivery": "d" * 256,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "X-GitHub-Delivery header too long"
+
+
+def test_github_webhook_event_header_too_long_rejected(
+    client: tuple[TestClient, sessionmaker],
+) -> None:
+    test_client, _ = client
+
+    response = test_client.post(
+        "/webhooks/github",
+        json={
+            "action": "opened",
+            "repository": {"full_name": "acme/widget"},
+            "issue": {"number": 9, "title": "Too long event header"},
+        },
+        headers={
+            "X-GitHub-Event": "e" * 121,
+            "X-GitHub-Delivery": "delivery-too-long-event",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "X-GitHub-Event header too long"
+
+
 def test_github_webhook_no_matching_project_returns_no_project(
     client: tuple[TestClient, sessionmaker],
 ) -> None:
