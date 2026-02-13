@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     job_worker_enabled: bool = Field(default=True)
     job_worker_poll_interval_sec: float = Field(default=1.0, ge=0.1, le=60.0)
     job_stale_timeout_sec: float = Field(default=900.0, ge=1.0, le=86400.0)
+    require_test_cmd: bool = Field(default=False)
 
     github_webhook_secret: str = Field(default="")
     github_webhook_auto_enqueue: bool = Field(default=False)
@@ -90,6 +91,9 @@ class Settings(BaseSettings):
 
         if self.database_url.strip().lower().startswith("sqlite"):
             errors.append("AGENT_HUB_DATABASE_URL must not use sqlite in production")
+
+        if not self.require_test_cmd:
+            errors.append("AGENT_HUB_REQUIRE_TEST_CMD must be enabled in production")
 
         if self._contains_placeholder(self.api_keys):
             errors.append("AGENT_HUB_API_KEYS must not use placeholder values in production")

@@ -386,6 +386,23 @@ def metrics(
         )
         or 0
     )
+    oldest_queued_created_at = db.scalar(
+        select(func.min(models.AutopilotJob.created_at))
+        .select_from(models.AutopilotJob)
+        .where(models.AutopilotJob.status == models.JobStatus.queued)
+    )
+    oldest_queued_age_sec = 0.0
+    if oldest_queued_created_at is not None:
+        try:
+            oldest_queued_age_sec = max((models.utc_now() - oldest_queued_created_at).total_seconds(), 0.0)
+        except TypeError:
+            oldest_queued_age_sec = max(
+                (
+                    models.utc_now().replace(tzinfo=None)
+                    - oldest_queued_created_at.replace(tzinfo=None)
+                ).total_seconds(),
+                0.0,
+            )
     running_job_count = int(
         db.scalar(
             select(func.count())
@@ -444,6 +461,9 @@ def metrics(
         "# HELP agent_hub_autopilot_jobs_queued Total queued autopilot jobs",
         "# TYPE agent_hub_autopilot_jobs_queued gauge",
         f"agent_hub_autopilot_jobs_queued {queued_job_count}",
+        "# HELP agent_hub_autopilot_jobs_queued_oldest_age_seconds Age of oldest queued job in seconds",
+        "# TYPE agent_hub_autopilot_jobs_queued_oldest_age_seconds gauge",
+        f"agent_hub_autopilot_jobs_queued_oldest_age_seconds {oldest_queued_age_sec:.3f}",
         "# HELP agent_hub_autopilot_jobs_running Total running autopilot jobs",
         "# TYPE agent_hub_autopilot_jobs_running gauge",
         f"agent_hub_autopilot_jobs_running {running_job_count}",

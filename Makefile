@@ -1,4 +1,4 @@
-.PHONY: bootstrap-dev install test smoke check-large-files run docker-build db-upgrade db-downgrade verify-image-signature prod-preflight prod-config prod-build prod-verify-image-signature prod-pull prod-up prod-down prod-ps prod-logs prod-db-upgrade prod-db-downgrade prod-deploy prod-backup prod-restore
+.PHONY: bootstrap-dev install test smoke demo check-large-files run docker-build db-upgrade db-downgrade verify-image-signature prod-preflight prod-config prod-build prod-verify-image-signature prod-pull prod-up prod-down prod-ps prod-logs prod-worker-logs prod-db-upgrade prod-db-downgrade prod-deploy prod-backup prod-restore dogfood-github
 
 PROD_COMPOSE = docker compose --env-file .env -f docker-compose.prod.yml
 
@@ -13,6 +13,9 @@ test:
 
 smoke:
 	bash scripts/smoke.sh
+
+demo:
+	bash scripts/demo.sh
 
 check-large-files:
 	bash scripts/check_large_files.sh
@@ -63,7 +66,10 @@ prod-deploy: prod-pull
 	$(MAKE) prod-up
 
 prod-logs:
-	$(PROD_COMPOSE) logs -f app postgres prometheus
+	$(PROD_COMPOSE) logs -f app worker postgres prometheus
+
+prod-worker-logs:
+	$(PROD_COMPOSE) logs -f worker
 
 prod-db-upgrade:
 	@if [ "$$CONFIRM_DB_BACKUP" != "1" ]; then \
@@ -82,3 +88,6 @@ prod-backup:
 
 prod-restore:
 	bash scripts/restore_db.sh
+
+dogfood-github:
+	bash scripts/dogfood_github_sync.sh

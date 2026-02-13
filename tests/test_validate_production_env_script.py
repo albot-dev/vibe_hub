@@ -26,6 +26,7 @@ def _write_env_file(tmp_path: Path, **overrides: str) -> Path:
         "AGENT_HUB_AUTH_REQUIRE_READS": "1",
         "AGENT_HUB_JWT_SECRET": "abcdefghijklmnopqrstuvwxyz123456",
         "AGENT_HUB_ALLOW_LOCAL_REPO_PATHS": "0",
+        "AGENT_HUB_REQUIRE_TEST_CMD": "1",
         "AGENT_HUB_GITHUB_WEBHOOK_SECRET": "top-secret-webhook",
         "AGENT_HUB_GITHUB_WEBHOOK_MAX_PAYLOAD_BYTES": "1000000",
         "AGENT_HUB_METRICS_REQUIRE_TOKEN": "1",
@@ -64,6 +65,13 @@ def test_validate_production_env_fails_without_webhook_secret(tmp_path: Path) ->
     result = _run_validator(env_path)
     assert result.returncode != 0
     assert "AGENT_HUB_GITHUB_WEBHOOK_SECRET" in result.stderr
+
+
+def test_validate_production_env_requires_test_command_policy(tmp_path: Path) -> None:
+    env_path = _write_env_file(tmp_path, AGENT_HUB_REQUIRE_TEST_CMD="0")
+    result = _run_validator(env_path)
+    assert result.returncode != 0
+    assert "AGENT_HUB_REQUIRE_TEST_CMD" in result.stderr
 
 
 def test_validate_production_env_fails_without_metrics_token(tmp_path: Path) -> None:

@@ -32,6 +32,7 @@ services:
       - .env
     environment:
       AGENT_HUB_DATABASE_URL: ${AGENT_HUB_DATABASE_URL:?set AGENT_HUB_DATABASE_URL in .env}
+      AGENT_HUB_JOB_WORKER_ENABLED: "0"
     ports:
       - "${AGENT_HUB_BIND_HOST:-127.0.0.1}:${AGENT_HUB_PORT:-8000}:8000"
     volumes:
@@ -50,6 +51,31 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
+
+  worker:
+    image: ${AGENT_HUB_IMAGE:?set AGENT_HUB_IMAGE in .env}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      AGENT_HUB_DATABASE_URL: ${AGENT_HUB_DATABASE_URL:?set AGENT_HUB_DATABASE_URL in .env}
+      AGENT_HUB_JOB_WORKER_ENABLED: "1"
+    volumes:
+      - agent_workspaces:/app/.agent_workspaces
+    command:
+      - /bin/sh
+      - -c
+      - python -m app.worker_main
 
   prometheus:
     image: ${PROMETHEUS_IMAGE:?set PROMETHEUS_IMAGE in .env}

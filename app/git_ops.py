@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.config import get_settings
-from app.providers import CodeChange
+from app.providers import CodeChange, FileChange
 
 
 class GitError(RuntimeError):
@@ -59,7 +59,14 @@ class GitWorkspaceManager:
             )
         )
 
-    def _run(self, cmd: list[str], *, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self,
+        cmd: list[str],
+        *,
+        cwd: Path,
+        check: bool = True,
+        stdin_text: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         attempts = max(self.command_retries + 1, 1)
         last_error: str | None = None
 
@@ -71,6 +78,7 @@ class GitWorkspaceManager:
                     check=False,
                     capture_output=True,
                     text=True,
+                    input=stdin_text,
                     timeout=self.command_timeout_sec,
                 )
             except subprocess.TimeoutExpired as exc:
@@ -95,8 +103,15 @@ class GitWorkspaceManager:
 
         raise GitError(last_error or f"Command failed: {' '.join(cmd)}")
 
-    def _run_git(self, args: list[str], *, cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
-        return self._run(["git", *args], cwd=cwd or self.workspace_path, check=check)
+    def _run_git(
+        self,
+        args: list[str],
+        *,
+        cwd: Path | None = None,
+        check: bool = True,
+        stdin_text: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        return self._run(["git", *args], cwd=cwd or self.workspace_path, check=check, stdin_text=stdin_text)
 
     @contextmanager
     def _project_lock(self):
@@ -152,6 +167,35 @@ class GitWorkspaceManager:
             raise GitError(f"Refusing to write outside workspace: {relative_path}")
         return target
 
+    def _status_paths(self) -> list[str]:
+        proc = self._run_git(["status", "--porcelain", "--untracked-files=all"])
+        paths: list[str] = []
+        for line in proc.stdout.splitlines():
+            if len(line) < 4:
+                continue
+            raw_path = line[3:]
+            if " -> " in raw_path:
+                raw_path = raw_path.split(" -> ", 1)[1]
+            path = raw_path.strip()
+            if path:
+                paths.append(path)
+        return paths
+
+    def _apply_file_change(self, file_change: FileChange) -> None:
+        target = self._ensure_path_within_workspace(file_change.path)
+        if file_change.operation == "delete":
+            if target.exists():
+                target.unlink()
+            return
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        content = file_change.content if file_change.content.endswith("\n") else f"{file_change.content}\n"
+        target.write_text(content, encoding="utf-8")
+
+    def _apply_patch(self, patch: str) -> None:
+        self._run_git(["apply", "--check", "--whitespace=fix", "-"], stdin_text=patch)
+        self._run_git(["apply", "--whitespace=fix", "-"], stdin_text=patch)
+
     def commit_agent_change(self, *, branch_name: str, change: CodeChange) -> GitExecutionResult:
         with self._project_lock():
             self._prepare_workspace_locked()
@@ -159,12 +203,18 @@ class GitWorkspaceManager:
             self._run_git(["branch", "-D", branch_name], check=False)
             self._run_git(["checkout", "-b", branch_name])
 
-            target = self._ensure_path_within_workspace(change.relative_path)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            content = change.content if change.content.endswith("\n") else f"{change.content}\n"
-            target.write_text(content, encoding="utf-8")
+            if change.patch and change.patch.strip():
+                self._apply_patch(change.patch)
+            else:
+                if not change.file_changes:
+                    raise GitError("Code change has no patch and no file_changes")
+                for file_change in change.file_changes:
+                    self._apply_file_change(file_change)
 
-            self._run_git(["add", change.relative_path])
+            for changed_path in self._status_paths():
+                self._ensure_path_within_workspace(changed_path)
+
+            self._run_git(["add", "-A"])
             commit_proc = self._run_git(["commit", "-m", change.commit_message], check=False)
             if commit_proc.returncode != 0:
                 output = "\n".join(part for part in [commit_proc.stdout.strip(), commit_proc.stderr.strip()] if part)

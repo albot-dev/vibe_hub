@@ -16,6 +16,7 @@ def _hardened_production_settings(**overrides: object) -> Settings:
         "auth_require_reads": True,
         "jwt_secret": "x" * 32,
         "allow_local_repo_paths": False,
+        "require_test_cmd": True,
         "github_webhook_secret": "webhook-secret",
         "metrics_require_token": True,
         "metrics_bearer_token": "metrics-token-abcdefghijklmnopqrstuvwxyz",
@@ -38,6 +39,7 @@ def test_production_safety_errors_report_critical_misconfiguration() -> None:
         auth_require_reads=False,
         jwt_secret="short",
         allow_local_repo_paths=True,
+        require_test_cmd=False,
         github_webhook_secret="",
         metrics_require_token=False,
         metrics_bearer_token="short",
@@ -51,6 +53,7 @@ def test_production_safety_errors_report_critical_misconfiguration() -> None:
     assert any("AGENT_HUB_AUTH_REQUIRE_READS" in item for item in errors)
     assert any("AGENT_HUB_JWT_SECRET" in item for item in errors)
     assert any("AGENT_HUB_ALLOW_LOCAL_REPO_PATHS" in item for item in errors)
+    assert any("AGENT_HUB_REQUIRE_TEST_CMD" in item for item in errors)
     assert any("AGENT_HUB_GITHUB_WEBHOOK_SECRET" in item for item in errors)
     assert any("AGENT_HUB_METRICS_REQUIRE_TOKEN" in item for item in errors)
     assert any("AGENT_HUB_METRICS_BEARER_TOKEN" in item for item in errors)

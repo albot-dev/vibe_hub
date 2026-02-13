@@ -231,5 +231,9 @@ if ! grep -q "agent_hub_autopilot_jobs_stale_recovered_total" <<<"${METRICS}"; t
   echo "assertion failed: missing stale recovery metric" >&2
   exit 1
 fi
+if ! grep -q "agent_hub_autopilot_jobs_queued_oldest_age_seconds" <<<"${METRICS}"; then
+  echo "assertion failed: missing queued oldest age metric" >&2
+  exit 1
+fi
 
 echo "[smoke] success: end-to-end smoke flow passed"

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
+import re
 import textwrap
 import warnings
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from pathlib import PurePosixPath
+from typing import Any, Literal, Protocol
 
 from app import models
 
@@ -25,24 +25,81 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _default_change_path(fallback_item_id: int) -> str:
+    return f"agent_codegen/work_item_{fallback_item_id}.py"
+
+
 def _normalize_relative_path(path: str, fallback_item_id: int) -> str:
-    candidate = (path or "").strip().replace("\\", "/")
+    raw = (path or "").strip().replace("\\", "/")
+    if not raw:
+        return _default_change_path(fallback_item_id)
+
+    parts = [part for part in PurePosixPath(raw).parts if part not in {"", ".", ".."}]
+    candidate = "/".join(parts).lstrip("/")
     if not candidate:
-        candidate = f"agent_notes/work_item_{fallback_item_id}.md"
-    if candidate.startswith("/"):
-        candidate = candidate.lstrip("/")
-    candidate = re.sub(r"\.{2,}", "", candidate)
-    if not candidate:
-        candidate = f"agent_notes/work_item_{fallback_item_id}.md"
+        return _default_change_path(fallback_item_id)
     return candidate
+
+
+def _read_text_file(path: Path, *, max_chars: int = 2000) -> str:
+    if not path.exists() or not path.is_file():
+        return ""
+    try:
+        data = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return ""
+    return data[:max_chars]
+
+
+def _workspace_overview(workspace_path: Path) -> str:
+    proc = subprocess.run(
+        ["git", "ls-files"],
+        cwd=workspace_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    tracked_files: list[str] = []
+    if proc.returncode == 0:
+        tracked_files = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+    selected_files = tracked_files[:120]
+    readme_snippet = _read_text_file(workspace_path / "README.md", max_chars=1800)
+
+    lines = [
+        f"Workspace root: {workspace_path}",
+        f"Tracked files count: {len(tracked_files)}",
+        "Tracked files sample:",
+    ]
+    if selected_files:
+        lines.extend(f"- {item}" for item in selected_files)
+    else:
+        lines.append("- <none>")
+
+    if readme_snippet:
+        lines.extend(
+            [
+                "",
+                "README.md excerpt:",
+                readme_snippet,
+            ]
+        )
+    return "\n".join(lines)
+
+
+@dataclass(slots=True)
+class FileChange:
+    path: str
+    content: str = ""
+    operation: Literal["upsert", "delete"] = "upsert"
 
 
 @dataclass(slots=True)
 class CodeChange:
-    relative_path: str
-    content: str
+    file_changes: list[FileChange]
     commit_message: str
     summary: str
+    patch: str | None = None
 
 
 @dataclass(slots=True)
@@ -61,6 +118,7 @@ class AgentProvider(Protocol):
         work_item: models.WorkItem,
         agent: models.Agent,
         branch_name: str,
+        workspace_path: Path,
     ) -> CodeChange: ...
 
     def review_pull_request(
@@ -84,6 +142,68 @@ class AgentProvider(Protocol):
 class RuleBasedProvider:
     name = "rule_based"
 
+    @staticmethod
+    def _build_python_changes(
+        *,
+        project: models.Project,
+        work_item: models.WorkItem,
+        agent: models.Agent,
+        branch_name: str,
+    ) -> list[FileChange]:
+        module_name = f"work_item_{work_item.id}"
+        package_path = "agent_codegen"
+        source_path = f"{package_path}/{module_name}.py"
+        init_path = f"{package_path}/__init__.py"
+        test_path = f"tests/test_{module_name}.py"
+        objective_fragment = (work_item.source_objective or "").strip()[:120]
+        title_fragment = work_item.title.strip()
+
+        source_content = "\n".join(
+            [
+                f'"""Generated implementation for work item {work_item.id}."""',
+                "",
+                "from __future__ import annotations",
+                "",
+                "from datetime import UTC, datetime",
+                "",
+                "",
+                "def describe_work_item() -> dict[str, str]:",
+                '    """Return deterministic metadata describing this generated implementation."""',
+                "    return {",
+                f'        "project": {json.dumps(project.name)},',
+                f'        "branch": {json.dumps(branch_name)},',
+                f'        "agent": {json.dumps(agent.name)},',
+                f'        "work_item_id": {json.dumps(str(work_item.id))},',
+                f'        "title": {json.dumps(title_fragment)},',
+                f'        "objective_fragment": {json.dumps(objective_fragment)},',
+                '        "generated_at": datetime.now(UTC).isoformat(),',
+                "    }",
+                "",
+            ]
+        )
+
+        test_content = "\n".join(
+            [
+                "from __future__ import annotations",
+                "",
+                f"from {package_path}.{module_name} import describe_work_item",
+                "",
+                "",
+                "def test_describe_work_item_contains_metadata() -> None:",
+                "    payload = describe_work_item()",
+                f'    assert payload["work_item_id"] == "{work_item.id}"',
+                f'    assert payload["project"] == "{project.name}"',
+                '    assert payload["title"]',
+                "",
+            ]
+        )
+
+        return [
+            FileChange(path=init_path, content='"""Agent-generated modules."""\n'),
+            FileChange(path=source_path, content=source_content),
+            FileChange(path=test_path, content=test_content),
+        ]
+
     def synthesize_change(
         self,
         *,
@@ -91,36 +211,22 @@ class RuleBasedProvider:
         work_item: models.WorkItem,
         agent: models.Agent,
         branch_name: str,
+        workspace_path: Path,
     ) -> CodeChange:
-        relative_path = f"agent_notes/work_item_{work_item.id}.md"
-        content = "\n".join(
-            [
-                f"# Work Item {work_item.id}",
-                "",
-                f"- Project: {project.name}",
-                f"- Branch: {branch_name}",
-                f"- Agent: {agent.name}",
-                f"- Generated at: {datetime.now(UTC).isoformat()}",
-                "",
-                "## Task",
-                work_item.title,
-                "",
-                "## Objective Context",
-                work_item.source_objective or "n/a",
-                "",
-                "## Notes",
-                work_item.description,
-                "",
-                "## Outcome",
-                f"Implemented deterministic agent artifact for `{_slugify(work_item.title)}`.",
-                "",
-            ]
+        _ = workspace_path
+        changes = self._build_python_changes(
+            project=project,
+            work_item=work_item,
+            agent=agent,
+            branch_name=branch_name,
         )
         return CodeChange(
-            relative_path=relative_path,
-            content=content,
+            file_changes=changes,
             commit_message=f"agent: implement work item {work_item.id}",
-            summary=f"Created `{relative_path}` with autonomous implementation notes.",
+            summary=(
+                f"Generated Python implementation + test scaffolding for `{_slugify(work_item.title)}` "
+                f"across {len(changes)} files."
+            ),
         )
 
     def review_pull_request(
@@ -158,8 +264,15 @@ class RuleBasedProvider:
         work_item: models.WorkItem,
         workspace_path: Path,
     ) -> tuple[bool, str]:
+        _ = project, work_item
         test_cmd = os.getenv("AGENT_HUB_TEST_CMD", "").strip()
+        require_test_cmd = _env_bool("AGENT_HUB_REQUIRE_TEST_CMD", False)
         if not test_cmd:
+            if require_test_cmd:
+                return (
+                    False,
+                    "Validation is required but AGENT_HUB_TEST_CMD is unset.",
+                )
             return True, "No AGENT_HUB_TEST_CMD configured; marked pass by default."
 
         proc = subprocess.run(
@@ -225,6 +338,35 @@ class OpenAIProvider:
             raise ValueError("OpenAI JSON output must be an object")
         return payload
 
+    @staticmethod
+    def _parse_file_changes(data: dict[str, Any], work_item_id: int) -> list[FileChange]:
+        raw = data.get("file_changes")
+        parsed: list[FileChange] = []
+
+        if isinstance(raw, list):
+            for item in raw:
+                if not isinstance(item, dict):
+                    continue
+                path = _normalize_relative_path(
+                    str(item.get("path", "") or item.get("relative_path", "")),
+                    work_item_id,
+                )
+                operation_raw = str(item.get("operation", "upsert")).strip().lower()
+                operation: Literal["upsert", "delete"] = "delete" if operation_raw == "delete" else "upsert"
+                content = "" if operation == "delete" else str(item.get("content", ""))
+                if operation == "upsert" and not content.strip():
+                    continue
+                parsed.append(FileChange(path=path, content=content, operation=operation))
+
+        if parsed:
+            return parsed
+
+        legacy_path = _normalize_relative_path(str(data.get("relative_path", "")), work_item_id)
+        legacy_content = str(data.get("content", "")).strip()
+        if legacy_content:
+            return [FileChange(path=legacy_path, content=legacy_content, operation="upsert")]
+        return []
+
     def synthesize_change(
         self,
         *,
@@ -232,14 +374,19 @@ class OpenAIProvider:
         work_item: models.WorkItem,
         agent: models.Agent,
         branch_name: str,
+        workspace_path: Path,
     ) -> CodeChange:
+        workspace_context = _workspace_overview(workspace_path)
         system_prompt = textwrap.dedent(
             """
-            You are an autonomous software agent generating a concise git change artifact.
-            Return JSON only with keys: relative_path, content, commit_message, summary.
+            You are an autonomous software agent generating concrete repository edits.
+            Return JSON only with keys: patch, file_changes, commit_message, summary.
             Constraints:
-            - relative_path must be repository-relative and safe.
-            - content must be markdown and actionable.
+            - Prefer `patch` when possible (git unified diff, no markdown fences).
+            - If patch is omitted, provide `file_changes` as a JSON array.
+            - file_changes item keys: path, operation (upsert|delete), content.
+            - path must be repository-relative and safe.
+            - content must be source code or tests, not prose summaries.
             - commit_message must be <= 72 chars.
             - summary must be <= 180 chars.
             """
@@ -253,23 +400,25 @@ class OpenAIProvider:
             Work item title: {work_item.title}
             Work item description: {work_item.description}
             Objective context: {work_item.source_objective}
+            Repository context:
+            {workspace_context}
             """
         ).strip()
 
         try:
             data = self._chat_json(system_prompt=system_prompt, user_prompt=user_prompt)
-            relative_path = _normalize_relative_path(str(data.get("relative_path", "")), work_item.id)
-            content = str(data.get("content", "")).strip()
-            if not content:
-                raise ValueError("content is empty")
+            patch = str(data.get("patch", "")).strip() or None
+            file_changes = self._parse_file_changes(data, work_item.id)
+            if patch is None and not file_changes:
+                raise ValueError("OpenAI response did not include patch or file_changes")
             commit_message = str(data.get("commit_message", "")).strip() or f"agent: implement work item {work_item.id}"
             commit_message = commit_message.replace("\n", " ")[:72]
             summary = str(data.get("summary", "")).strip()[:180] or "Generated via OpenAI provider."
             return CodeChange(
-                relative_path=relative_path,
-                content=content,
+                file_changes=file_changes,
                 commit_message=commit_message,
                 summary=summary,
+                patch=patch,
             )
         except Exception:
             fallback = self._fallback.synthesize_change(
@@ -277,6 +426,7 @@ class OpenAIProvider:
                 work_item=work_item,
                 agent=agent,
                 branch_name=branch_name,
+                workspace_path=workspace_path,
             )
             fallback.summary = f"{fallback.summary} Fallback used due to OpenAI synthesis error."
             return fallback

@@ -202,11 +202,13 @@ class AutopilotService:
         item.status = models.WorkItemStatus.in_progress
 
         branch = f"agent/{item.id}-{_slugify(item.title)}"
+        workspace_path = self.git.prepare_workspace()
         change = self.provider.synthesize_change(
             project=self.project,
             work_item=item,
             agent=coder,
             branch_name=branch,
+            workspace_path=workspace_path,
         )
 
         try:

@@ -10,7 +10,7 @@ This runbook covers production operations for deployments using `docker-compose.
 - `.env` contains `AGENT_HUB_IMAGE` pinned to an immutable digest from `.github/workflows/image.yml` (for example `ghcr.io/<owner>/<repo>@sha256:<digest>`).
 - `.env` contains `AGENT_HUB_COSIGN_CERTIFICATE_IDENTITY_REGEX` and `AGENT_HUB_COSIGN_CERTIFICATE_OIDC_ISSUER` for keyless cosign verification trust policy.
 - `.env` contains `POSTGRES_IMAGE` and `PROMETHEUS_IMAGE` pinned to immutable digests.
-- `.env` contains `AGENT_HUB_GITHUB_WEBHOOK_SECRET`, `AGENT_HUB_METRICS_BEARER_TOKEN`, and hardened production auth settings (`AGENT_HUB_REQUIRE_API_KEY=1`, `AGENT_HUB_AUTH_REQUIRE_ROLES=1`, `AGENT_HUB_AUTH_REQUIRE_READS=1`, `AGENT_HUB_ALLOW_LOCAL_REPO_PATHS=0`, `AGENT_HUB_METRICS_REQUIRE_TOKEN=1`).
+- `.env` contains `AGENT_HUB_GITHUB_WEBHOOK_SECRET`, `AGENT_HUB_METRICS_BEARER_TOKEN`, and hardened production auth settings (`AGENT_HUB_REQUIRE_API_KEY=1`, `AGENT_HUB_AUTH_REQUIRE_ROLES=1`, `AGENT_HUB_AUTH_REQUIRE_READS=1`, `AGENT_HUB_ALLOW_LOCAL_REPO_PATHS=0`, `AGENT_HUB_METRICS_REQUIRE_TOKEN=1`, `AGENT_HUB_REQUIRE_TEST_CMD=1`).
 - If `AGENT_HUB_RATE_LIMIT_TRUST_PROXY_HEADERS=1`, `.env` also contains `AGENT_HUB_TRUSTED_PROXY_IPS` with explicit proxy source IPs.
 - You can run `docker compose -f docker-compose.prod.yml ps` successfully.
 
@@ -53,6 +53,7 @@ docker compose -f docker-compose.prod.yml up -d --no-build
 ```bash
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs --tail=200 app
+docker compose -f docker-compose.prod.yml logs --tail=200 worker
 ```
 10. Validate Prometheus scrape health.
 ```bash
@@ -97,6 +98,7 @@ docker compose -f docker-compose.prod.yml up -d --no-deps --no-build app
 ```bash
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs --tail=200 app
+docker compose -f docker-compose.prod.yml logs --tail=200 worker
 ```
 9. Validate Prometheus scrape health.
 ```bash
@@ -121,7 +123,7 @@ docker compose -f docker-compose.prod.yml run --rm app alembic upgrade head
 ```bash
 docker compose -f docker-compose.prod.yml run --rm app alembic current
 ```
-5. If rollback is required, prefer database restore from backup. Current Alembic downgrades are destructive and can drop schema objects.
+5. If rollback is required, prefer database restore from backup. Migrations follow a forward-only policy; downgrade is intentionally unsupported.
 ```bash
 CONFIRM_DB_RESTORE=restore-postgres ./scripts/restore_db.sh /var/backups/vibe_hub/<backup>.sql
 ```
@@ -177,6 +179,7 @@ Restore notes:
 ```bash
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs --tail=300 app
+docker compose -f docker-compose.prod.yml logs --tail=300 worker
 docker compose -f docker-compose.prod.yml logs --tail=300 postgres
 ```
 4. Confirm scope and user impact (API errors, latency, DB saturation, queue buildup).

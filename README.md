@@ -28,6 +28,7 @@ You provide objectives, and the system coordinates planner/coder/reviewer/tester
 - Git workspace manager: `app/git_ops.py`
 - Provider abstraction: `app/providers.py`
 - Job queue + worker: `app/job_queue.py`, `app/job_worker.py`
+- Worker process entrypoint: `app/worker_main.py`
 - Runtime config: `app/config.py`
 - Security/auth dependencies: `app/security.py`, `app/auth.py`, `app/permissions.py`
 - Repo path validation: `app/repo_security.py`
@@ -99,6 +100,14 @@ For production deployment signature verification, install `cosign` via:
 ## Usage (Local)
 
 By default, local development runs with auth gates disabled. You can exercise the full flow immediately:
+
+Fastest first-success path:
+
+```bash
+make demo
+```
+
+This runs an end-to-end flow (project creation, objective ingestion, autopilot run, job controls, webhook dedup, metrics checks) in temporary local infrastructure.
 
 ```bash
 curl -s http://127.0.0.1:8000/health
@@ -196,7 +205,8 @@ curl -sX POST http://127.0.0.1:8000/auth/token \
 - `AGENT_HUB_PROVIDER_FALLBACK`: fallback to `rule_based` if provider init fails (`1` default)
 - `AGENT_HUB_OPENAI_MODEL`: model for `openai` provider (default: `gpt-4.1-mini`)
 - `AGENT_HUB_OPENAI_TIMEOUT_SEC`: OpenAI timeout seconds (default: `45`)
-- `AGENT_HUB_TEST_CMD`: optional validation command run in workspace
+- `AGENT_HUB_TEST_CMD`: validation command run in the target workspace
+- `AGENT_HUB_REQUIRE_TEST_CMD`: require `AGENT_HUB_TEST_CMD` for autopilot execution (`0` default; set `1` in production)
 - `AGENT_HUB_AUTO_PUSH`: push branch/default branch after merge (`0` default)
 - `AGENT_HUB_RATE_LIMIT_ENABLED`: enable in-memory rate limiting for write endpoints (`0` default)
 - `AGENT_HUB_RATE_LIMIT_REQUESTS_PER_MINUTE`: write request limit per minute per client IP (default: `120`)
@@ -208,7 +218,7 @@ curl -sX POST http://127.0.0.1:8000/auth/token \
 - `AGENT_HUB_METRICS_BEARER_TOKEN`: bearer token used to access `/metrics`
 - `AGENT_HUB_GITHUB_WEBHOOK_AUTO_ENQUEUE`: auto-enqueue autopilot job for `issues:opened` webhooks (`0` default)
 
-When `AGENT_HUB_APP_ENV=production`, startup fails fast if critical safety controls are missing (API keys, write/read role auth, JWT secret, webhook secret, metrics auth token, non-sqlite DB, local-path repo access disabled, proxy allowlist when trusted headers are enabled, and placeholder `replace-with` secrets).
+When `AGENT_HUB_APP_ENV=production`, startup fails fast if critical safety controls are missing (API keys, write/read role auth, JWT secret, webhook secret, metrics auth token, non-sqlite DB, local-path repo access disabled, required test command policy, proxy allowlist when trusted headers are enabled, and placeholder `replace-with` secrets).
 
 External VCS integration variables:
 
@@ -284,6 +294,7 @@ curl -sX POST http://127.0.0.1:8000/projects/1/jobs/1/retry
 - `GET /metrics`
   - Includes `agent_hub_autopilot_jobs_stale_recovered_total`
   - Includes `agent_hub_autopilot_job_worker_loop_errors_total`
+  - Includes `agent_hub_autopilot_jobs_queued_oldest_age_seconds`
   - Includes `agent_hub_rate_limit_rejections_total`
   - Includes `agent_hub_webhook_deliveries_failed_total`
 
@@ -293,7 +304,9 @@ curl -sX POST http://127.0.0.1:8000/projects/1/jobs/1/retry
 make bootstrap-dev
 make install
 make test
+make demo
 make smoke
+make dogfood-github
 make check-large-files
 bash -n scripts/*.sh
 make run
@@ -320,6 +333,17 @@ Run `make smoke` to execute an end-to-end API smoke flow with temporary infrastr
 - starts the API in secure mode (API key + JWT role enforcement)
 - validates project/bootstrap/objective/autopilot/job-retry flows
 - validates GitHub webhook signature handling + delivery-id deduplication
+
+Use `make demo` for the same flow with onboarding-focused output.
+
+## GitHub Dogfood Flow
+
+Run `make dogfood-github` to validate the live GitHub sync integration.
+
+- Default mode is dry-run (token + repo access check only).
+- Set `DOGFOOD_CONFIRM=1` to execute full create-project -> autopilot -> push branch -> GitHub sync flow.
+- Set `DOGFOOD_GITHUB_REPO=<owner/repo>` to target a specific repository.
+- Set `DOGFOOD_CLEANUP=1` (default) to close the created PR and delete the remote branch after validation.
 
 ## Repository Hygiene
 
@@ -348,6 +372,7 @@ cp .env.example .env
 - `AGENT_HUB_GITHUB_WEBHOOK_MAX_PAYLOAD_BYTES` (recommended to keep at default or lower unless needed)
 - `AGENT_HUB_METRICS_REQUIRE_TOKEN` (`1` in production)
 - `AGENT_HUB_METRICS_BEARER_TOKEN` (required in production; used by Prometheus scrape auth)
+- `AGENT_HUB_REQUIRE_TEST_CMD` (`1` in production)
 - `AGENT_HUB_RATE_LIMIT_TRUST_PROXY_HEADERS` / `AGENT_HUB_TRUSTED_PROXY_IPS` (set only when running behind trusted proxies)
 3. Run production preflight checks (env policy + compose config render).
 ```bash
@@ -359,7 +384,7 @@ make verify-image-signature
 make prod-backup
 CONFIRM_DB_BACKUP=1 make prod-deploy
 ```
-`make prod-deploy` runs production env preflight (including compose config render) and signature verification before pull, then applies migrations and starts services.
+`make prod-deploy` runs production env preflight (including compose config render) and signature verification before pull, then applies migrations and starts services (`app`, `worker`, `postgres`, `prometheus`).
 `make prod-db-upgrade` performs an explicit Postgres readiness wait before running Alembic and requires `CONFIRM_DB_BACKUP=1`.
 When `AGENT_HUB_APP_ENV=production`, schema auto-create is disabled at startup; Alembic migrations are required.
 5. Verify service health and logs.
@@ -367,7 +392,7 @@ When `AGENT_HUB_APP_ENV=production`, schema auto-create is disabled at startup; 
 make prod-ps
 make prod-logs
 ```
-Production compose hardening includes read-only root filesystem for the app service, dropped Linux capabilities, and `no-new-privileges`.
+Production compose hardening includes read-only root filesystem for app/worker services, dropped Linux capabilities, and `no-new-privileges`.
 
 Image publishing workflow:
 - `.github/workflows/image.yml`

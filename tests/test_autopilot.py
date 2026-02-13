@@ -112,8 +112,10 @@ def test_autopilot_happy_path(client: TestClient, tmp_path: Path, local_repo: st
     assert dashboard["merged_pr_count"] == 3
 
     workspace = tmp_path / "workspaces" / f"project-{project_id}"
-    artifact_file = workspace / "agent_notes" / "work_item_1.md"
-    assert artifact_file.exists()
+    generated_module = workspace / "agent_codegen" / "work_item_1.py"
+    generated_test = workspace / "tests" / "test_work_item_1.py"
+    assert generated_module.exists()
+    assert generated_test.exists()
 
     current_branch = _run(["git", "branch", "--show-current"], cwd=workspace)
     assert current_branch == "main"
@@ -131,6 +133,7 @@ def test_autopilot_happy_path(client: TestClient, tmp_path: Path, local_repo: st
     assert "agent_hub_webhook_deliveries_failed_total" in metrics_resp.text
     assert "agent_hub_autopilot_jobs_stale_recovered_total" in metrics_resp.text
     assert "agent_hub_autopilot_job_worker_loop_errors_total" in metrics_resp.text
+    assert "agent_hub_autopilot_jobs_queued_oldest_age_seconds" in metrics_resp.text
 
 
 def test_project_name_conflict(client: TestClient, local_repo: str) -> None:
@@ -168,6 +171,50 @@ def test_autopilot_blocks_merge_when_validation_fails(
         f"/projects/{project_id}/objectives",
         json={
             "objective": "Add a stricter auth integration test suite",
+            "max_work_items": 1,
+            "created_by": "system",
+        },
+    )
+
+    run_resp = client.post(f"/projects/{project_id}/autopilot/run", json={"max_items": 1})
+    assert run_resp.status_code == 200
+    data = run_resp.json()
+    assert data["processed_items"] == 1
+    assert len(data["created_prs"]) == 1
+    assert data["merged_pr_ids"] == []
+
+    tester_reviews = [review for review in data["reviews"] if review["decision"] == "request_changes"]
+    assert len(tester_reviews) == 1
+
+    dashboard_resp = client.get(f"/projects/{project_id}/dashboard")
+    dashboard = dashboard_resp.json()
+    assert dashboard["done_count"] == 0
+    assert dashboard["open_pr_count"] == 1
+
+
+def test_autopilot_blocks_merge_when_test_command_is_required_but_missing(
+    client: TestClient,
+    local_repo: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_HUB_REQUIRE_TEST_CMD", "1")
+    monkeypatch.delenv("AGENT_HUB_TEST_CMD", raising=False)
+
+    project_resp = client.post(
+        "/projects",
+        json={
+            "name": "agent-repo-test-cmd-required",
+            "repo_url": local_repo,
+            "default_branch": "main",
+        },
+    )
+    project_id = project_resp.json()["id"]
+
+    client.post(f"/projects/{project_id}/bootstrap")
+    client.post(
+        f"/projects/{project_id}/objectives",
+        json={
+            "objective": "Enforce required validation command behavior",
             "max_work_items": 1,
             "created_by": "system",
         },
