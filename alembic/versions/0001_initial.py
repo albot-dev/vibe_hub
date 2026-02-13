@@ -27,5 +27,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    Base.metadata.drop_all(bind=bind)
+    raise RuntimeError(
+        "Forward-only migration policy: downgrade is not supported for revision 0001_initial"
+    )

@@ -88,5 +88,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     raise RuntimeError(
-        "Forward-only migration: downgrade is intentionally unsupported for automation_policy_revisions"
+        "Forward-only migration policy: downgrade is not supported for revision 0004_add_policy_revisions"
     )

@@ -419,7 +419,7 @@ docker run --rm -p 8000:8000 agent-hub:latest
 
 ## Remaining Work Before Large-Scale Production
 
-- Expand migration coverage with forward-only data migrations
+- Expand cross-database migration compatibility coverage (SQLite/Postgres parity tests)
 - Background job queue + worker autoscaling
 - Multi-tenant authn/authz (JWT/OIDC + RBAC)
 - Deepen GitHub/GitLab native integration (review APIs, check-runs/check-suites, webhook parity)

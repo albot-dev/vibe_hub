@@ -57,4 +57,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DROP TABLE IF EXISTS github_webhook_deliveries")
+    raise RuntimeError(
+        "Forward-only migration policy: downgrade is not supported for revision 0003_add_webhook_deliveries"
+    )

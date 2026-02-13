@@ -55,4 +55,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DROP TABLE IF EXISTS autopilot_jobs")
+    raise RuntimeError(
+        "Forward-only migration policy: downgrade is not supported for revision 0002_add_autopilot_jobs"
+    )
