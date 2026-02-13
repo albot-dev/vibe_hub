@@ -1,7 +1,7 @@
 # Agent Hub
 
-Agent Hub is a GitHub-style backend built for autonomous software agents.
-Humans provide high-level objectives; agents decompose, implement, validate, review, and merge work with policy controls.
+Agent Hub is an agent-native collaboration backend for software projects.
+You provide objectives, and the system coordinates planner/coder/reviewer/tester agents to generate work items, produce code changes, run validation, review, and merge.
 
 ## Production-Ready Baseline Included
 
@@ -31,16 +31,26 @@ Humans provide high-level objectives; agents decompose, implement, validate, rev
 - Security/auth dependencies: `app/security.py`, `app/auth.py`, `app/permissions.py`
 - Repo path validation: `app/repo_security.py`
 
-## Environment Setup
+## Installation (Local Development)
 
-Install prerequisites before running this project:
+### Prerequisites
 
 - `git`
 - `python` 3.11+
-- `uv`
-- `cosign` (required for production signed-image verification)
+- `make`
+- `uv` (Python package/runtime manager)
+- `cosign` (only required for production signed-image verification)
 
-Install `uv` (official installer):
+### 1) Clone and enter the repo
+
+```bash
+git clone <your-repo-url>
+cd vibe_hub
+```
+
+### 2) Install `uv` (if missing)
+
+Official installer:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -52,61 +62,75 @@ If `curl` is unavailable:
 wget -qO- https://astral.sh/uv/install.sh | sh
 ```
 
-Alternative install methods:
+Alternatives:
 
 ```bash
 brew install uv
 pipx install uv
 ```
 
-If you see `zsh: command not found: uv`, your `PATH` likely does not include `~/.local/bin`.
-Add it and reload your shell:
+If you get `zsh: command not found: uv`, add `~/.local/bin` to `PATH`:
 
 ```bash
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-Verify:
-
-```bash
-uv --version
-python3 --version
-```
-
-Bootstrap dev dependencies in one step:
+### 3) Bootstrap dependencies
 
 ```bash
 make bootstrap-dev
 ```
 
-Install `cosign` using the official instructions:
+This runs `scripts/bootstrap_dev.sh`, which syncs dev dependencies and prints clear guidance if `uv` is missing.
+
+### 4) Start the API
+
+```bash
+make run
+```
+
+Open docs at `http://127.0.0.1:8000/docs`.
+
+For production deployment signature verification, install `cosign` via:
 `https://docs.sigstore.dev/cosign/system_config/installation/`
+
+## Usage (Local)
+
+By default, local development runs with auth gates disabled. You can exercise the full flow immediately:
+
+```bash
+curl -s http://127.0.0.1:8000/health
+
+curl -sX POST http://127.0.0.1:8000/projects \
+  -H 'content-type: application/json' \
+  -d '{"name":"acme-api","repo_url":"https://github.com/acme/api","default_branch":"main"}'
+
+curl -sX POST http://127.0.0.1:8000/projects/1/bootstrap
+
+curl -sX POST http://127.0.0.1:8000/projects/1/objectives \
+  -H 'content-type: application/json' \
+  -d '{"objective":"Reduce flaky tests and improve auth edge-case coverage","max_work_items":2,"created_by":"system"}'
+
+curl -sX POST http://127.0.0.1:8000/projects/1/autopilot/run \
+  -H 'content-type: application/json' \
+  -d '{"max_items":2}'
+
+curl -s http://127.0.0.1:8000/projects/1/dashboard
+```
+
+Run a broader end-to-end check at any time:
+
+```bash
+make smoke
+```
 
 Common setup errors:
 
-- `zsh: command not found: uv`:
-  - install `uv` and ensure `~/.local/bin` is in `PATH` (see commands above)
-- `error: Failed to spawn: alembic`:
-  - install/sync dev dependencies:
-    ```bash
-    make bootstrap-dev
-    ```
-  - then rerun:
-    ```bash
-    make db-upgrade
-    # or
-    make smoke
-    ```
-
-## Quickstart (Local)
-
-```bash
-make bootstrap-dev
-uv run uvicorn app.main:app --reload
-```
-
-Open API docs at `http://127.0.0.1:8000/docs`.
+- `zsh: command not found: uv`
+  - install `uv` and ensure `~/.local/bin` is in `PATH`, then run `make bootstrap-dev`
+- `error: Failed to spawn: alembic`
+  - run `make bootstrap-dev`, then rerun `make db-upgrade` or `make smoke`
 
 ## Optional LLM Provider (OpenAI)
 
@@ -209,8 +233,8 @@ Duplicate delivery ids return `{"action":"ignored","reason":"Duplicate delivery"
 6. Run synchronously: `POST /projects/{project_id}/autopilot/run`
 7. Or queue async execution: `POST /projects/{project_id}/jobs/autopilot`
 8. Cancel or retry async jobs: `POST /projects/{project_id}/jobs/{job_id}/cancel`, `POST /projects/{project_id}/jobs/{job_id}/retry`
-9. Inspect: `/dashboard`, `/events`, `/work-items`, `/runs`, `/pull-requests`, `/projects/{id}/jobs`, `/metrics`
-10. Sync local PR metadata to GitHub: `POST /projects/{id}/pull-requests/{pr_id}/github/sync`
+9. Inspect: `/projects/{project_id}/dashboard`, `/projects/{project_id}/events`, `/projects/{project_id}/work-items`, `/projects/{project_id}/runs`, `/projects/{project_id}/pull-requests`, `/projects/{project_id}/jobs`, `/metrics`
+10. Sync local PR metadata to GitHub: `POST /projects/{project_id}/pull-requests/{pull_request_id}/github/sync`
 11. Receive inbound GitHub webhooks: `POST /webhooks/github`
 
 ### Example
