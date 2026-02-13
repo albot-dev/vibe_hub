@@ -293,6 +293,22 @@ class AutomationPolicyRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AutomationPolicyRevisionRead(BaseModel):
+    id: int
+    project_id: int
+    auto_triage: bool
+    auto_assign: bool
+    auto_review: bool
+    auto_merge: bool
+    min_review_approvals: int
+    require_test_pass: bool
+    changed_by: str
+    change_reason: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class AutomationPolicyUpdate(BaseModel):
     auto_triage: bool | None = None
     auto_assign: bool | None = None
@@ -300,3 +316,4 @@ class AutomationPolicyUpdate(BaseModel):
     auto_merge: bool | None = None
     min_review_approvals: int | None = Field(default=None, ge=1, le=10)
     require_test_pass: bool | None = None
+    change_reason: str | None = Field(default=None, max_length=255)

@@ -52,6 +52,14 @@ _READ_AUTH_EXEMPT_PATHS = {
     "/health/ready",
     "/metrics",
 }
+_POLICY_SNAPSHOT_FIELDS = (
+    "auto_triage",
+    "auto_assign",
+    "auto_review",
+    "auto_merge",
+    "min_review_approvals",
+    "require_test_pass",
+)
 
 
 def _validate_runtime_configuration(settings) -> None:
@@ -468,6 +476,43 @@ def _ensure_project_policy(db: Session, project: models.Project) -> models.Autom
     return policy
 
 
+def _resolve_policy_changed_by(principal: AuthPrincipal | None) -> str:
+    if principal is None:
+        return "system:api"
+    return f"principal:{principal.subject}"[:120]
+
+
+def _record_policy_revision(
+    *,
+    db: Session,
+    policy: models.AutomationPolicy,
+    changed_by: str,
+    change_reason: str,
+) -> models.AutomationPolicyRevision:
+    revision = models.AutomationPolicyRevision(
+        project_id=policy.project_id,
+        auto_triage=policy.auto_triage,
+        auto_assign=policy.auto_assign,
+        auto_review=policy.auto_review,
+        auto_merge=policy.auto_merge,
+        min_review_approvals=policy.min_review_approvals,
+        require_test_pass=policy.require_test_pass,
+        changed_by=(changed_by or "system:api")[:120],
+        change_reason=(change_reason or "").strip()[:255],
+    )
+    db.add(revision)
+    return revision
+
+
+def _apply_policy_snapshot_from_revision(
+    *,
+    policy: models.AutomationPolicy,
+    revision: models.AutomationPolicyRevision,
+) -> None:
+    for field in _POLICY_SNAPSHOT_FIELDS:
+        setattr(policy, field, getattr(revision, field))
+
+
 
 def _bounded_limit(limit: int | None) -> int:
     settings = get_settings()
@@ -858,13 +903,74 @@ def update_automation_policy(
     db: Session = Depends(get_session),
     _: None = Depends(require_write_access),
     __: None = Depends(_enforce_write_roles_if_enabled),
+    principal: AuthPrincipal | None = Depends(get_current_principal(optional=True)),
 ) -> models.AutomationPolicy:
     project = _get_project_or_404(db, project_id)
     policy = _ensure_project_policy(db, project)
     updates = payload.model_dump(exclude_none=True)
+    change_reason = str(updates.pop("change_reason", "")).strip()
     for field, value in updates.items():
         setattr(policy, field, value)
 
+    _record_policy_revision(
+        db=db,
+        policy=policy,
+        changed_by=_resolve_policy_changed_by(principal),
+        change_reason=change_reason or "policy_updated",
+    )
+    db.commit()
+    db.refresh(policy)
+    return policy
+
+
+@app.get(
+    "/projects/{project_id}/policy/revisions",
+    response_model=list[schemas.AutomationPolicyRevisionRead],
+)
+def list_automation_policy_revisions(
+    project_id: int,
+    limit: int | None = Query(default=None, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_session),
+) -> list[models.AutomationPolicyRevision]:
+    _get_project_or_404(db, project_id)
+    return db.scalars(
+        select(models.AutomationPolicyRevision)
+        .where(models.AutomationPolicyRevision.project_id == project_id)
+        .order_by(
+            models.AutomationPolicyRevision.created_at.desc(),
+            models.AutomationPolicyRevision.id.desc(),
+        )
+        .offset(offset)
+        .limit(_bounded_limit(limit))
+    ).all()
+
+
+@app.post(
+    "/projects/{project_id}/policy/revisions/{revision_id}/restore",
+    response_model=schemas.AutomationPolicyRead,
+)
+def restore_automation_policy_revision(
+    project_id: int,
+    revision_id: int,
+    db: Session = Depends(get_session),
+    _: None = Depends(require_write_access),
+    __: None = Depends(_enforce_write_roles_if_enabled),
+    principal: AuthPrincipal | None = Depends(get_current_principal(optional=True)),
+) -> models.AutomationPolicy:
+    project = _get_project_or_404(db, project_id)
+    policy = _ensure_project_policy(db, project)
+    revision = db.get(models.AutomationPolicyRevision, revision_id)
+    if revision is None or revision.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Policy revision not found")
+
+    _apply_policy_snapshot_from_revision(policy=policy, revision=revision)
+    _record_policy_revision(
+        db=db,
+        policy=policy,
+        changed_by=_resolve_policy_changed_by(principal),
+        change_reason=f"restored_from_revision:{revision.id}",
+    )
     db.commit()
     db.refresh(policy)
     return policy

@@ -71,6 +71,11 @@ class Project(Base):
     work_items: Mapped[list[WorkItem]] = relationship(back_populates="project", cascade="all, delete-orphan")
     pull_requests: Mapped[list[PullRequest]] = relationship(back_populates="project", cascade="all, delete-orphan")
     policy: Mapped[AutomationPolicy | None] = relationship(back_populates="project", uselist=False, cascade="all, delete-orphan")
+    policy_revisions: Mapped[list[AutomationPolicyRevision]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="AutomationPolicyRevision.created_at.desc()",
+    )
     events: Mapped[list[EventLog]] = relationship(back_populates="project", cascade="all, delete-orphan")
     jobs: Mapped[list[AutopilotJob]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
@@ -88,6 +93,24 @@ class AutomationPolicy(Base):
     require_test_pass: Mapped[bool] = mapped_column(Boolean, default=True)
 
     project: Mapped[Project] = relationship(back_populates="policy")
+
+
+class AutomationPolicyRevision(Base):
+    __tablename__ = "automation_policy_revisions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    auto_triage: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_assign: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_review: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_merge: Mapped[bool] = mapped_column(Boolean, default=True)
+    min_review_approvals: Mapped[int] = mapped_column(Integer, default=1)
+    require_test_pass: Mapped[bool] = mapped_column(Boolean, default=True)
+    changed_by: Mapped[str] = mapped_column(String(120), default="system")
+    change_reason: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+    project: Mapped[Project] = relationship(back_populates="policy_revisions")
 
 
 class Agent(Base):

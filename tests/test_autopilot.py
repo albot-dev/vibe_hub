@@ -234,6 +234,132 @@ def test_policy_endpoint_can_disable_auto_merge(client: TestClient, local_repo: 
     assert dashboard["open_pr_count"] == 1
 
 
+def test_policy_update_creates_revision_entries(client: TestClient, local_repo: str) -> None:
+    project_resp = client.post(
+        "/projects",
+        json={
+            "name": "agent-policy-revisions-create",
+            "repo_url": local_repo,
+            "default_branch": "main",
+        },
+    )
+    assert project_resp.status_code == 200
+    project_id = project_resp.json()["id"]
+
+    patch_policy = client.patch(
+        f"/projects/{project_id}/policy",
+        json={
+            "auto_merge": False,
+            "min_review_approvals": 2,
+            "change_reason": "tighten merge gate",
+        },
+    )
+    assert patch_policy.status_code == 200
+
+    revisions_resp = client.get(f"/projects/{project_id}/policy/revisions")
+    assert revisions_resp.status_code == 200
+    revisions = revisions_resp.json()
+    assert len(revisions) == 1
+    assert revisions[0]["auto_merge"] is False
+    assert revisions[0]["min_review_approvals"] == 2
+    assert revisions[0]["change_reason"] == "tighten merge gate"
+    assert revisions[0]["changed_by"] == "system:api"
+
+
+def test_policy_revisions_list_newest_first(client: TestClient, local_repo: str) -> None:
+    project_resp = client.post(
+        "/projects",
+        json={
+            "name": "agent-policy-revisions-order",
+            "repo_url": local_repo,
+            "default_branch": "main",
+        },
+    )
+    assert project_resp.status_code == 200
+    project_id = project_resp.json()["id"]
+
+    first_patch = client.patch(
+        f"/projects/{project_id}/policy",
+        json={
+            "auto_assign": False,
+            "change_reason": "disable auto assignment",
+        },
+    )
+    assert first_patch.status_code == 200
+
+    second_patch = client.patch(
+        f"/projects/{project_id}/policy",
+        json={
+            "auto_assign": True,
+            "change_reason": "re-enable auto assignment",
+        },
+    )
+    assert second_patch.status_code == 200
+
+    revisions_resp = client.get(f"/projects/{project_id}/policy/revisions")
+    assert revisions_resp.status_code == 200
+    revisions = revisions_resp.json()
+    assert len(revisions) == 2
+    assert revisions[0]["id"] > revisions[1]["id"]
+    assert revisions[0]["change_reason"] == "re-enable auto assignment"
+    assert revisions[1]["change_reason"] == "disable auto assignment"
+
+
+def test_policy_revision_restore_reapplies_values_and_records_revision(
+    client: TestClient,
+    local_repo: str,
+) -> None:
+    project_resp = client.post(
+        "/projects",
+        json={
+            "name": "agent-policy-revisions-restore",
+            "repo_url": local_repo,
+            "default_branch": "main",
+        },
+    )
+    assert project_resp.status_code == 200
+    project_id = project_resp.json()["id"]
+
+    first_patch = client.patch(
+        f"/projects/{project_id}/policy",
+        json={
+            "auto_merge": False,
+            "min_review_approvals": 2,
+            "change_reason": "lock merge policy",
+        },
+    )
+    assert first_patch.status_code == 200
+
+    second_patch = client.patch(
+        f"/projects/{project_id}/policy",
+        json={
+            "auto_merge": True,
+            "min_review_approvals": 1,
+            "change_reason": "relax merge policy",
+        },
+    )
+    assert second_patch.status_code == 200
+
+    revisions = client.get(f"/projects/{project_id}/policy/revisions").json()
+    assert len(revisions) == 2
+    target_revision = next(item for item in revisions if item["change_reason"] == "lock merge policy")
+
+    restore_resp = client.post(
+        f"/projects/{project_id}/policy/revisions/{target_revision['id']}/restore",
+    )
+    assert restore_resp.status_code == 200
+    restored = restore_resp.json()
+    assert restored["auto_merge"] is False
+    assert restored["min_review_approvals"] == 2
+
+    revisions_after_restore = client.get(f"/projects/{project_id}/policy/revisions").json()
+    assert len(revisions_after_restore) == 3
+    latest = revisions_after_restore[0]
+    assert latest["change_reason"] == f"restored_from_revision:{target_revision['id']}"
+    assert latest["auto_merge"] is False
+    assert latest["min_review_approvals"] == 2
+
+
 def test_policy_auto_assign_disabled_skips_unassigned(client: TestClient, local_repo: str) -> None:
     project_resp = client.post(
         "/projects",

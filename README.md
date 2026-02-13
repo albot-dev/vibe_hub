@@ -230,12 +230,14 @@ Duplicate delivery ids return `{"action":"ignored","reason":"Duplicate delivery"
 3. Optional manual lifecycle management: `GET /projects/{project_id}/agents`, `POST /projects/{project_id}/agents`, `PATCH /projects/{project_id}/agents/{agent_id}`
 4. Create objective: `POST /projects/{project_id}/objectives`
 5. Tune policy: `PATCH /projects/{project_id}/policy`
-6. Run synchronously: `POST /projects/{project_id}/autopilot/run`
-7. Or queue async execution: `POST /projects/{project_id}/jobs/autopilot`
-8. Cancel or retry async jobs: `POST /projects/{project_id}/jobs/{job_id}/cancel`, `POST /projects/{project_id}/jobs/{job_id}/retry`
-9. Inspect: `/projects/{project_id}/dashboard`, `/projects/{project_id}/events`, `/projects/{project_id}/work-items`, `/projects/{project_id}/runs`, `/projects/{project_id}/pull-requests`, `/projects/{project_id}/jobs`, `/metrics`
-10. Sync local PR metadata to GitHub: `POST /projects/{project_id}/pull-requests/{pull_request_id}/github/sync`
-11. Receive inbound GitHub webhooks: `POST /webhooks/github`
+6. Inspect policy history: `GET /projects/{project_id}/policy/revisions`
+7. Restore a prior policy snapshot: `POST /projects/{project_id}/policy/revisions/{revision_id}/restore`
+8. Run synchronously: `POST /projects/{project_id}/autopilot/run`
+9. Or queue async execution: `POST /projects/{project_id}/jobs/autopilot`
+10. Cancel or retry async jobs: `POST /projects/{project_id}/jobs/{job_id}/cancel`, `POST /projects/{project_id}/jobs/{job_id}/retry`
+11. Inspect: `/projects/{project_id}/dashboard`, `/projects/{project_id}/events`, `/projects/{project_id}/work-items`, `/projects/{project_id}/runs`, `/projects/{project_id}/pull-requests`, `/projects/{project_id}/jobs`, `/metrics`
+12. Sync local PR metadata to GitHub: `POST /projects/{project_id}/pull-requests/{pull_request_id}/github/sync`
+13. Receive inbound GitHub webhooks: `POST /webhooks/github`
 
 ### Example
 
