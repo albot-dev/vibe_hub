@@ -163,9 +163,8 @@ validate_database_url() {
     add_error "AGENT_HUB_DATABASE_URL must start with postgresql+psycopg://"
   fi
 
-  local parse_status=0
-  local -a parts=()
-  mapfile -t parts < <(
+  local parse_output=""
+  if ! parse_output="$(
     python3 - "${url}" <<'PY'
 from urllib.parse import unquote, urlsplit
 import sys
@@ -186,17 +185,26 @@ print(host)
 print(username)
 print(database)
 PY
-  ) || parse_status=$?
-
-  if (( parse_status != 0 )); then
+  )"; then
     add_error "AGENT_HUB_DATABASE_URL is not parseable as a SQLAlchemy postgresql URL"
     return
   fi
 
-  local db_scheme="${parts[0]:-}"
-  local db_host="${parts[1]:-}"
-  local db_user="${parts[2]:-}"
-  local db_name="${parts[3]:-}"
+  local db_scheme=""
+  local db_host=""
+  local db_user=""
+  local db_name=""
+  local line=""
+  local line_index=0
+  while IFS= read -r line; do
+    case "${line_index}" in
+      0) db_scheme="${line}" ;;
+      1) db_host="${line}" ;;
+      2) db_user="${line}" ;;
+      3) db_name="${line}" ;;
+    esac
+    ((line_index += 1))
+  done <<< "${parse_output}"
 
   if [[ "${db_scheme}" != "postgresql+psycopg" ]]; then
     add_error "AGENT_HUB_DATABASE_URL scheme must be postgresql+psycopg"
