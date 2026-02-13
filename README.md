@@ -74,6 +74,12 @@ uv --version
 python3 --version
 ```
 
+Bootstrap dev dependencies in one step:
+
+```bash
+make bootstrap-dev
+```
+
 Install `cosign` using the official instructions:
 `https://docs.sigstore.dev/cosign/system_config/installation/`
 
@@ -84,7 +90,7 @@ Common setup errors:
 - `error: Failed to spawn: alembic`:
   - install/sync dev dependencies:
     ```bash
-    uv sync --extra dev
+    make bootstrap-dev
     ```
   - then rerun:
     ```bash
@@ -96,7 +102,7 @@ Common setup errors:
 ## Quickstart (Local)
 
 ```bash
-uv sync --extra dev
+make bootstrap-dev
 uv run uvicorn app.main:app --reload
 ```
 
@@ -249,6 +255,7 @@ curl -sX POST http://127.0.0.1:8000/projects/1/jobs/1/retry
 ## Development Commands
 
 ```bash
+make bootstrap-dev
 make install
 make test
 make smoke

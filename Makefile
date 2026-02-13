@@ -1,6 +1,9 @@
-.PHONY: install test smoke check-large-files run docker-build db-upgrade db-downgrade verify-image-signature prod-preflight prod-config prod-build prod-verify-image-signature prod-pull prod-up prod-down prod-ps prod-logs prod-db-upgrade prod-db-downgrade prod-deploy prod-backup prod-restore
+.PHONY: bootstrap-dev install test smoke check-large-files run docker-build db-upgrade db-downgrade verify-image-signature prod-preflight prod-config prod-build prod-verify-image-signature prod-pull prod-up prod-down prod-ps prod-logs prod-db-upgrade prod-db-downgrade prod-deploy prod-backup prod-restore
 
 PROD_COMPOSE = docker compose --env-file .env -f docker-compose.prod.yml
+
+bootstrap-dev:
+	bash scripts/bootstrap_dev.sh
 
 install:
 	uv sync --extra dev
