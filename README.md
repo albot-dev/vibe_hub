@@ -14,6 +14,7 @@ You provide objectives, and the system coordinates planner/coder/reviewer/tester
 - Optional JWT auth with role enforcement (`admin`, `maintainer`, `viewer`)
 - Async autopilot job queue with background worker
 - GitHub + GitLab sync endpoints for opening remote PRs/MRs + commit statuses
+- Request tracing headers (`X-Trace-ID`, `traceparent`) for cross-service correlation
 - Prometheus-compatible `/metrics` endpoint
 - CI workflow (`.github/workflows/ci.yml`) with unit tests, smoke tests, and shell syntax checks
 - Container build files (`Dockerfile`, `.dockerignore`) using pinned base image digest and lockfile-frozen dependency sync
@@ -422,5 +423,5 @@ docker run --rm -p 8000:8000 agent-hub:latest
 - Background job queue + worker autoscaling
 - Multi-tenant authn/authz (JWT/OIDC + RBAC)
 - Deepen GitHub/GitLab native integration (review APIs, check-runs/check-suites, webhook parity)
-- Distributed tracing and centralized log shipping
+- Distributed tracing export pipeline and centralized log shipping
 - Stateful policy/audit management UI

@@ -39,6 +39,7 @@ from app.providers import get_provider
 from app.rate_limit import InMemoryRateLimiter
 from app.repo_security import normalize_and_validate_repo_url
 from app.security import require_write_access
+from app.tracing import resolve_trace_context
 
 logger = logging.getLogger("agent_hub.api")
 _rate_limiter: InMemoryRateLimiter | None = None
@@ -223,12 +224,17 @@ async def request_context_middleware(request: Request, call_next):
     global _rate_limiter, _rate_limiter_rpm
 
     request_id = request.headers.get("X-Request-ID", "").strip() or uuid.uuid4().hex
+    trace_context = resolve_trace_context(request.headers.get("traceparent"))
+    request.state.trace_id = trace_context.trace_id
+    request.state.traceparent = trace_context.traceparent
     start = time.perf_counter()
     settings = get_settings()
 
     read_access_error = _enforce_read_roles_if_enabled(request, settings)
     if read_access_error is not None:
         read_access_error.headers["X-Request-ID"] = request_id
+        read_access_error.headers["X-Trace-ID"] = trace_context.trace_id
+        read_access_error.headers["traceparent"] = trace_context.traceparent
         return read_access_error
 
     if settings.rate_limit_enabled and request.method.upper() in {"POST", "PATCH", "PUT", "DELETE"}:
@@ -248,6 +254,8 @@ async def request_context_middleware(request: Request, call_next):
                 headers={
                     "Retry-After": str(decision.retry_after_sec),
                     "X-Request-ID": request_id,
+                    "X-Trace-ID": trace_context.trace_id,
+                    "traceparent": trace_context.traceparent,
                 },
             )
 
@@ -256,22 +264,26 @@ async def request_context_middleware(request: Request, call_next):
     except Exception:
         duration_ms = (time.perf_counter() - start) * 1000.0
         logger.exception(
-            "request_failed method=%s path=%s request_id=%s duration_ms=%.2f",
+            "request_failed method=%s path=%s request_id=%s trace_id=%s duration_ms=%.2f",
             request.method,
             request.url.path,
             request_id,
+            trace_context.trace_id,
             duration_ms,
         )
         raise
 
     duration_ms = (time.perf_counter() - start) * 1000.0
     response.headers["X-Request-ID"] = request_id
+    response.headers["X-Trace-ID"] = trace_context.trace_id
+    response.headers["traceparent"] = trace_context.traceparent
     logger.info(
-        "request_completed method=%s path=%s status=%s request_id=%s duration_ms=%.2f",
+        "request_completed method=%s path=%s status=%s request_id=%s trace_id=%s duration_ms=%.2f",
         request.method,
         request.url.path,
         response.status_code,
         request_id,
+        trace_context.trace_id,
         duration_ms,
     )
     return response
