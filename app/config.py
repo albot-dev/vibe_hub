@@ -38,6 +38,7 @@ class Settings(BaseSettings):
 
     github_webhook_secret: str = Field(default="")
     github_webhook_auto_enqueue: bool = Field(default=False)
+    github_webhook_max_payload_bytes: int = Field(default=1_000_000, ge=1024, le=20_000_000)
     metrics_require_token: bool = Field(default=False)
     metrics_bearer_token: str = Field(default="")
 

@@ -57,6 +57,16 @@ def _mark_delivery_failed(*, db: Session, delivery_id: int, error: Exception) ->
     db.commit()
 
 
+def _enforce_payload_size_limit(raw_payload: bytes) -> None:
+    max_payload_bytes = get_settings().github_webhook_max_payload_bytes
+    payload_size = len(raw_payload)
+    if payload_size > max_payload_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Webhook payload exceeds max allowed size ({max_payload_bytes} bytes)",
+        )
+
+
 def _verify_signature_if_configured(raw_payload: bytes, signature_256: str | None) -> None:
     settings = get_settings()
     secret = settings.github_webhook_secret.strip()
@@ -318,6 +328,7 @@ async def handle_github_webhook(
     db.refresh(delivery)
 
     try:
+        _enforce_payload_size_limit(raw_payload)
         payload = _load_payload(raw_payload)
         if normalized_event == "issues":
             response = _handle_issues_event(db, payload)

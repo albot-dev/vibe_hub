@@ -172,6 +172,7 @@ curl -sX POST http://127.0.0.1:8000/auth/token \
 - `AGENT_HUB_RATE_LIMIT_TRUST_PROXY_HEADERS`: trust `X-Forwarded-For`/`X-Real-IP` for rate-limit keys (`0` default)
 - `AGENT_HUB_TRUSTED_PROXY_IPS`: comma-separated proxy source IPs allowed to supply trusted forwarding headers
 - `AGENT_HUB_GITHUB_WEBHOOK_SECRET`: GitHub webhook signing secret (validates `X-Hub-Signature-256`, required in production)
+- `AGENT_HUB_GITHUB_WEBHOOK_MAX_PAYLOAD_BYTES`: maximum accepted webhook payload size in bytes (default: `1000000`)
 - `AGENT_HUB_METRICS_REQUIRE_TOKEN`: require bearer token on `/metrics` (`0` default)
 - `AGENT_HUB_METRICS_BEARER_TOKEN`: bearer token used to access `/metrics`
 - `AGENT_HUB_GITHUB_WEBHOOK_AUTO_ENQUEUE`: auto-enqueue autopilot job for `issues:opened` webhooks (`0` default)
@@ -188,6 +189,7 @@ When `AGENT_HUB_APP_ENV=production`, startup fails fast if critical safety contr
 Repository mapping is resolved via owner/repo matching (including `https://github.com/...`, `git@github.com:...`, and API URL forms).  
 When `AGENT_HUB_GITHUB_WEBHOOK_SECRET` is configured, requests must include a valid `X-Hub-Signature-256` HMAC SHA-256 signature.  
 In production mode (`AGENT_HUB_APP_ENV=production`), webhook secret configuration is mandatory.
+Webhook payloads larger than `AGENT_HUB_GITHUB_WEBHOOK_MAX_PAYLOAD_BYTES` are rejected with HTTP `413`.
 Webhook requests also require `X-GitHub-Delivery`; deliveries are persisted and deduplicated by this id.  
 Duplicate delivery ids return `{"action":"ignored","reason":"Duplicate delivery"}` and do not trigger side effects.
 
@@ -301,6 +303,7 @@ cp .env.example .env
 - `AGENT_HUB_JWT_SECRET`
 - `AGENT_HUB_BIND_HOST` (`127.0.0.1` recommended behind reverse proxy)
 - `AGENT_HUB_GITHUB_WEBHOOK_SECRET` (required in production)
+- `AGENT_HUB_GITHUB_WEBHOOK_MAX_PAYLOAD_BYTES` (recommended to keep at default or lower unless needed)
 - `AGENT_HUB_METRICS_REQUIRE_TOKEN` (`1` in production)
 - `AGENT_HUB_METRICS_BEARER_TOKEN` (required in production; used by Prometheus scrape auth)
 - `AGENT_HUB_RATE_LIMIT_TRUST_PROXY_HEADERS` / `AGENT_HUB_TRUSTED_PROXY_IPS` (set only when running behind trusted proxies)

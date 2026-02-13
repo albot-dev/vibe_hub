@@ -411,6 +411,45 @@ def test_github_webhook_invalid_payload_marks_delivery_failed(
     assert line == "agent_hub_webhook_deliveries_failed_total 1"
 
 
+def test_github_webhook_oversized_payload_marks_delivery_failed(
+    client: tuple[TestClient, sessionmaker],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    test_client, session_factory = client
+    monkeypatch.setenv("AGENT_HUB_GITHUB_WEBHOOK_MAX_PAYLOAD_BYTES", "1024")
+
+    response = test_client.post(
+        "/webhooks/github",
+        json={
+            "action": "opened",
+            "repository": {"full_name": "acme/oversized-payload-demo"},
+            "issue": {
+                "number": 90,
+                "title": "A very long payload title",
+                "body": "x" * 2048,
+            },
+        },
+        headers={
+            "X-GitHub-Event": "issues",
+            "X-GitHub-Delivery": "delivery-oversized-payload-failure",
+        },
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "Webhook payload exceeds max allowed size (1024 bytes)"
+
+    with session_factory() as db:
+        delivery = db.scalar(
+            select(models.GitHubWebhookDelivery).where(
+                models.GitHubWebhookDelivery.delivery_id == "delivery-oversized-payload-failure"
+            )
+        )
+    assert delivery is not None
+    assert delivery.event == "issues"
+    assert delivery.action == "failed"
+    assert delivery.reason == "Webhook payload exceeds max allowed size (1024 bytes)"
+
+
 def test_github_webhook_unexpected_handler_error_marks_delivery_failed(
     client: tuple[TestClient, sessionmaker],
     monkeypatch: pytest.MonkeyPatch,
