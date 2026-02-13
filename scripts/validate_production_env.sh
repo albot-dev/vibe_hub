@@ -135,6 +135,19 @@ validate_metrics_token_length() {
   fi
 }
 
+validate_webhook_payload_limit() {
+  local raw_value="${AGENT_HUB_GITHUB_WEBHOOK_MAX_PAYLOAD_BYTES:-}"
+  if [[ ! "${raw_value}" =~ ^[0-9]+$ ]]; then
+    add_error "AGENT_HUB_GITHUB_WEBHOOK_MAX_PAYLOAD_BYTES must be a positive integer"
+    return
+  fi
+
+  local value="${raw_value}"
+  if (( value < 1024 || value > 20000000 )); then
+    add_error "AGENT_HUB_GITHUB_WEBHOOK_MAX_PAYLOAD_BYTES must be between 1024 and 20000000"
+  fi
+}
+
 validate_proxy_header_trust_configuration() {
   local trust_headers="${AGENT_HUB_RATE_LIMIT_TRUST_PROXY_HEADERS:-0}"
   local trusted_proxy_ips="${AGENT_HUB_TRUSTED_PROXY_IPS:-}"
@@ -222,6 +235,7 @@ required_vars=(
   AGENT_HUB_JWT_SECRET
   AGENT_HUB_ALLOW_LOCAL_REPO_PATHS
   AGENT_HUB_GITHUB_WEBHOOK_SECRET
+  AGENT_HUB_GITHUB_WEBHOOK_MAX_PAYLOAD_BYTES
   AGENT_HUB_METRICS_REQUIRE_TOKEN
   AGENT_HUB_METRICS_BEARER_TOKEN
   AGENT_HUB_RATE_LIMIT_TRUST_PROXY_HEADERS
@@ -245,6 +259,7 @@ require_exact_value "AGENT_HUB_METRICS_REQUIRE_TOKEN" "1"
 
 validate_jwt_secret_length
 validate_metrics_token_length
+validate_webhook_payload_limit
 validate_proxy_header_trust_configuration
 validate_database_url
 
