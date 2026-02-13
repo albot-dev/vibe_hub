@@ -13,7 +13,7 @@ You provide objectives, and the system coordinates planner/coder/reviewer/tester
 - API-key protection for mutating endpoints
 - Optional JWT auth with role enforcement (`admin`, `maintainer`, `viewer`)
 - Async autopilot job queue with background worker
-- GitHub sync endpoint for opening remote PRs + commit statuses
+- GitHub + GitLab sync endpoints for opening remote PRs/MRs + commit statuses
 - Prometheus-compatible `/metrics` endpoint
 - CI workflow (`.github/workflows/ci.yml`) with unit tests, smoke tests, and shell syntax checks
 - Container build files (`Dockerfile`, `.dockerignore`) using pinned base image digest and lockfile-frozen dependency sync
@@ -209,6 +209,13 @@ curl -sX POST http://127.0.0.1:8000/auth/token \
 
 When `AGENT_HUB_APP_ENV=production`, startup fails fast if critical safety controls are missing (API keys, write/read role auth, JWT secret, webhook secret, metrics auth token, non-sqlite DB, local-path repo access disabled, proxy allowlist when trusted headers are enabled, and placeholder `replace-with` secrets).
 
+External VCS integration variables:
+
+- `GITHUB_TOKEN`: required for `.../github/sync`
+- `GITHUB_API_BASE_URL`: optional override (default: `https://api.github.com`)
+- `GITLAB_TOKEN`: required for `.../gitlab/sync`
+- `GITLAB_API_BASE_URL`: optional override (default: `https://gitlab.com/api/v4`)
+
 ## GitHub Webhooks
 
 `POST /webhooks/github` consumes raw GitHub webhook payloads and supports:
@@ -237,7 +244,8 @@ Duplicate delivery ids return `{"action":"ignored","reason":"Duplicate delivery"
 10. Cancel or retry async jobs: `POST /projects/{project_id}/jobs/{job_id}/cancel`, `POST /projects/{project_id}/jobs/{job_id}/retry`
 11. Inspect: `/projects/{project_id}/dashboard`, `/projects/{project_id}/events`, `/projects/{project_id}/work-items`, `/projects/{project_id}/runs`, `/projects/{project_id}/pull-requests`, `/projects/{project_id}/jobs`, `/metrics`
 12. Sync local PR metadata to GitHub: `POST /projects/{project_id}/pull-requests/{pull_request_id}/github/sync`
-13. Receive inbound GitHub webhooks: `POST /webhooks/github`
+13. Sync local PR metadata to GitLab: `POST /projects/{project_id}/pull-requests/{pull_request_id}/gitlab/sync`
+14. Receive inbound GitHub webhooks: `POST /webhooks/github`
 
 ### Example
 
@@ -413,6 +421,6 @@ docker run --rm -p 8000:8000 agent-hub:latest
 - Expand migration coverage with forward-only data migrations
 - Background job queue + worker autoscaling
 - Multi-tenant authn/authz (JWT/OIDC + RBAC)
-- GitHub/GitLab native PR/check integration
+- Deepen GitHub/GitLab native integration (review APIs, check-runs/check-suites, webhook parity)
 - Distributed tracing and centralized log shipping
 - Stateful policy/audit management UI

@@ -30,6 +30,7 @@ from app.db import SessionLocal, get_session, init_db
 from app.github_sync import GitHubAPIError, GitHubSyncAdapter, parse_github_repo
 from app.github_webhooks import handle_github_webhook
 from app.http_auth import extract_bearer_token
+from app.gitlab_sync import GitLabAPIError, GitLabSyncAdapter, parse_gitlab_repo
 from app.job_queue import JobQueueService
 from app.job_worker import AutopilotJobWorker
 from app.orchestration import AutopilotService
@@ -1065,6 +1066,74 @@ def sync_pull_request_to_github(
         repo=repo,
         github_pr_number=int(created.get("number", 0)),
         github_pr_url=str(created.get("html_url", "")) or None,
+        commit_status_state=commit_state,
+    )
+
+
+@app.post(
+    "/projects/{project_id}/pull-requests/{pull_request_id}/gitlab/sync",
+    response_model=schemas.GitLabSyncResponse,
+)
+def sync_pull_request_to_gitlab(
+    project_id: int,
+    pull_request_id: int,
+    payload: schemas.GitLabSyncRequest,
+    db: Session = Depends(get_session),
+    _: None = Depends(require_write_access),
+    __: None = Depends(_enforce_write_roles_if_enabled),
+) -> schemas.GitLabSyncResponse:
+    project = _get_project_or_404(db, project_id)
+    pull_request = db.get(models.PullRequest, pull_request_id)
+    if pull_request is None or pull_request.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Pull request not found")
+
+    try:
+        project_path = parse_gitlab_repo(project.repo_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    try:
+        with GitLabSyncAdapter() as gitlab:
+            created = gitlab.create_merge_request(
+                project_path=project_path,
+                source_branch=pull_request.source_branch,
+                target_branch=pull_request.target_branch,
+                title=pull_request.title,
+                description=pull_request.description,
+            )
+            commit_state: str | None = None
+
+            if payload.issue_iid is not None and payload.comment_body:
+                gitlab.create_issue_note(
+                    project_path=project_path,
+                    issue_iid=payload.issue_iid,
+                    body=payload.comment_body,
+                )
+
+            commit_sha = _extract_pr_metadata_value(pull_request.description, "merged_sha") or _extract_pr_metadata_value(
+                pull_request.description,
+                "commit",
+            )
+            if commit_sha:
+                status_payload = gitlab.set_commit_status(
+                    project_path=project_path,
+                    sha=commit_sha,
+                    state="success" if pull_request.status == models.PullRequestStatus.merged else "pending",
+                    context=payload.status_context,
+                    description=payload.status_description,
+                    target_url=payload.target_url,
+                )
+                commit_state = str(status_payload.get("status", "") or status_payload.get("state", "")).strip() or None
+
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except GitLabAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    return schemas.GitLabSyncResponse(
+        project_path=project_path,
+        gitlab_mr_iid=int(created.get("iid", 0)),
+        gitlab_mr_url=str(created.get("web_url", "")) or None,
         commit_status_state=commit_state,
     )
 

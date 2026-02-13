@@ -203,6 +203,21 @@ class GitHubSyncResponse(BaseModel):
     commit_status_state: str | None = None
 
 
+class GitLabSyncRequest(BaseModel):
+    issue_iid: int | None = Field(default=None, ge=1)
+    comment_body: str | None = None
+    status_context: str = Field(default="agent-hub/autopilot")
+    status_description: str = Field(default="Agent Hub autopilot sync")
+    target_url: str | None = None
+
+
+class GitLabSyncResponse(BaseModel):
+    project_path: str
+    gitlab_mr_iid: int
+    gitlab_mr_url: str | None = None
+    commit_status_state: str | None = None
+
+
 class GitHubWebhookRepositoryOwner(BaseModel):
     login: str | None = None
 
