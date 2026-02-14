@@ -11,3 +11,4 @@ agent_hub.db
 *.egg-info/
 
 .vibe/
+.tools/

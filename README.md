@@ -41,7 +41,7 @@ You provide objectives, and the system coordinates planner/coder/reviewer/tester
 - `python` 3.11+
 - `make`
 - `uv` (Python package/runtime manager)
-- `cosign` (only required for production signed-image verification)
+- `cosign` (optional preinstall; production verification can bootstrap a local copy automatically)
 
 ### 1) Clone and enter the repo
 
@@ -94,8 +94,9 @@ make run
 
 Open docs at `http://127.0.0.1:8000/docs`.
 
-For production deployment signature verification, install `cosign` via:
-`https://docs.sigstore.dev/cosign/system_config/installation/`
+For production deployment signature verification, `make verify-image-signature` auto-installs
+`cosign` into `.tools/bin` when it is not already available in `PATH`.
+To disable auto-install and require a preinstalled binary, set `COSIGN_AUTO_INSTALL=0`.
 
 ## Usage (Local)
 
@@ -402,7 +403,7 @@ Image publishing workflow:
 
 Signed-image deploy flow:
 1. Pin `AGENT_HUB_IMAGE` to a release digest in `.env`.
-2. Install `cosign` on the deploy host.
+2. Optional: preinstall `cosign` on the deploy host (or rely on automatic local bootstrap).
 3. Set `AGENT_HUB_COSIGN_CERTIFICATE_IDENTITY_REGEX` and `AGENT_HUB_COSIGN_CERTIFICATE_OIDC_ISSUER`.
 4. Run `make prod-preflight`.
 5. Run `make verify-image-signature`.
