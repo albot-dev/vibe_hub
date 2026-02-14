@@ -332,7 +332,8 @@ def api_console_prefill(request: Request) -> dict[str, str | bool]:
         raise HTTPException(status_code=404, detail="UI env prefill is disabled")
 
     client_host = request.client.host if request.client else None
-    if not _is_loopback_client_host(client_host):
+    request_host = request.url.hostname
+    if not (_is_loopback_client_host(client_host) or _is_loopback_client_host(request_host)):
         raise HTTPException(status_code=403, detail="UI env prefill is only available from loopback clients")
 
     return {
