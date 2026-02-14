@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Header, Query, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -25,6 +25,7 @@ from app.auth import (
     issue_access_token,
     verify_access_token,
 )
+from app.api_ui import API_UI_HTML
 from app.config import get_settings
 from app.db import SessionLocal, get_session, init_db
 from app.github_sync import GitHubAPIError, GitHubSyncAdapter, parse_github_repo
@@ -47,12 +48,14 @@ _rate_limiter_rpm: int | None = None
 _rate_limit_rejections_total = 0
 _rate_limit_rejections_lock = threading.Lock()
 _job_worker: AutopilotJobWorker | None = None
-_READ_AUTH_EXEMPT_PATH_PREFIXES = ("/docs", "/redoc", "/openapi.json")
+_READ_AUTH_EXEMPT_PATH_PREFIXES = ("/docs", "/redoc", "/openapi.json", "/ui/")
 _READ_AUTH_EXEMPT_PATHS = {
     "/health",
     "/health/live",
     "/health/ready",
     "/metrics",
+    "/ui",
+    "/ui/",
 }
 _POLICY_SNAPSHOT_FIELDS = (
     "auto_triage",
@@ -292,6 +295,12 @@ async def request_context_middleware(request: Request, call_next):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/ui/", response_class=HTMLResponse, include_in_schema=False)
+def api_console() -> HTMLResponse:
+    return HTMLResponse(content=API_UI_HTML)
 
 
 @app.get("/health/live")

@@ -93,6 +93,7 @@ make run
 ```
 
 Open docs at `http://127.0.0.1:8000/docs`.
+Open the built-in API console at `http://127.0.0.1:8000/ui`.
 
 For production deployment signature verification, `make verify-image-signature` auto-installs
 `cosign` into `.tools/bin` when it is not already available in `PATH`.

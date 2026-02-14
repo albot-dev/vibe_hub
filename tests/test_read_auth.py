@@ -75,6 +75,13 @@ def test_health_endpoint_remains_public_with_read_auth_enabled(client: TestClien
     assert response.json() == {"status": "ok"}
 
 
+def test_ui_endpoint_remains_public_with_read_auth_enabled(client: TestClient) -> None:
+    response = client.get("/ui")
+    assert response.status_code == 200
+    assert "Agent Hub API Console" in response.text
+    assert "Send Request" in response.text
+
+
 def test_metrics_endpoint_requires_metrics_bearer_token(client: TestClient) -> None:
     unauthorized = client.get("/metrics")
     assert unauthorized.status_code == 401
