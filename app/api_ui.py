@@ -324,6 +324,7 @@ API_UI_HTML = """<!doctype html>
         </div>
 
         <div class="actions">
+          <button id="autofillBtn" type="button">Autofill From .env</button>
           <button id="sendBtn" class="primary">Send Request</button>
           <button id="clearBtn" type="button">Clear Response</button>
         </div>
@@ -393,6 +394,7 @@ API_UI_HTML = """<!doctype html>
       const bearerTokenEl = document.getElementById("bearerToken");
       const extraHeadersEl = document.getElementById("extraHeaders");
       const bodyEl = document.getElementById("requestBody");
+      const autofillBtn = document.getElementById("autofillBtn");
       const sendBtn = document.getElementById("sendBtn");
       const clearBtn = document.getElementById("clearBtn");
       const curlPreviewEl = document.getElementById("curlPreview");
@@ -400,6 +402,7 @@ API_UI_HTML = """<!doctype html>
       const responseHeadersEl = document.getElementById("responseHeaders");
       const responseBodyEl = document.getElementById("responseBody");
       const presetsEl = document.getElementById("presets");
+      let prefillPayload = null;
 
       const defaultBaseUrl = window.location.origin || "http://127.0.0.1:8000";
       baseUrlEl.value = defaultBaseUrl;
@@ -519,6 +522,71 @@ API_UI_HTML = """<!doctype html>
         responseBodyEl.textContent = "(none)";
       }
 
+      async function readResponseDetail(response) {
+        const raw = await response.text();
+        if (!raw) {
+          return "HTTP " + response.status;
+        }
+
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.detail === "string") {
+            return parsed.detail;
+          }
+          return JSON.stringify(parsed);
+        } catch (_) {
+          return raw;
+        }
+      }
+
+      function prepareTokenRequestTemplate() {
+        methodEl.value = "POST";
+        pathEl.value = "/auth/token";
+        queryEl.value = "";
+        bodyEl.value = JSON.stringify(
+          {
+            subject: "ui-user",
+            role: "maintainer"
+          },
+          null,
+          2
+        );
+      }
+
+      async function autofillFromEnv() {
+        autofillBtn.disabled = true;
+        setStatus("Loading values from server env...", "warn");
+
+        try {
+          const response = await fetch("/ui/prefill", { method: "GET" });
+          if (!response.ok) {
+            throw new Error(await readResponseDetail(response));
+          }
+
+          const payload = await response.json();
+          prefillPayload = payload;
+
+          if (payload.base_url) {
+            baseUrlEl.value = String(payload.base_url);
+          }
+          if (payload.api_key) {
+            apiKeyEl.value = String(payload.api_key);
+          }
+
+          if (!bearerTokenEl.value.trim() && payload.auth_require_roles) {
+            prepareTokenRequestTemplate();
+            setStatus("Autofill complete. API key loaded. Click Send Request to issue a JWT token.", "ok");
+          } else {
+            setStatus("Autofill complete. API key loaded from server env.", "ok");
+          }
+          buildCurlPreview();
+        } catch (error) {
+          setStatus("Autofill failed: " + error.message, "err");
+        } finally {
+          autofillBtn.disabled = false;
+        }
+      }
+
       async function sendRequest() {
         sendBtn.disabled = true;
         setStatus("Sending request...", "warn");
@@ -541,7 +609,7 @@ API_UI_HTML = """<!doctype html>
           });
 
           const elapsedMs = Math.round(performance.now() - start);
-          const statusText = response.status + " " + response.statusText + " (" + elapsedMs + " ms)";
+          let statusText = response.status + " " + response.statusText + " (" + elapsedMs + " ms)";
           const variant = response.ok ? "ok" : (response.status >= 400 && response.status < 500 ? "warn" : "err");
           setStatus(statusText, variant);
 
@@ -553,14 +621,22 @@ API_UI_HTML = """<!doctype html>
 
           const rawText = await response.text();
           const contentType = response.headers.get("content-type") || "";
+          let parsedJson = null;
           if (rawText && contentType.includes("application/json")) {
             try {
-              responseBodyEl.textContent = JSON.stringify(JSON.parse(rawText), null, 2);
+              parsedJson = JSON.parse(rawText);
+              responseBodyEl.textContent = JSON.stringify(parsedJson, null, 2);
             } catch (_) {
               responseBodyEl.textContent = rawText;
             }
           } else {
             responseBodyEl.textContent = rawText || "(empty body)";
+          }
+
+          if (response.ok && parsedJson && typeof parsedJson.access_token === "string" && parsedJson.access_token) {
+            bearerTokenEl.value = parsedJson.access_token;
+            statusText = statusText + " - bearer token auto-filled";
+            setStatus(statusText, "ok");
           }
         } catch (error) {
           setStatus("Request failed: " + error.message, "err");
@@ -592,6 +668,7 @@ API_UI_HTML = """<!doctype html>
         });
 
       sendBtn.addEventListener("click", sendRequest);
+      autofillBtn.addEventListener("click", autofillFromEnv);
       clearBtn.addEventListener("click", clearResponse);
       bodyEl.addEventListener("keydown", function (event) {
         if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {

@@ -94,6 +94,7 @@ make run
 
 Open docs at `http://127.0.0.1:8000/docs`.
 Open the built-in API console at `http://127.0.0.1:8000/ui`.
+To enable one-click auth field autofill from server env on local requests, set `AGENT_HUB_UI_ENV_PREFILL_ENABLED=1`.
 
 For production deployment signature verification, `make verify-image-signature` auto-installs
 `cosign` into `.tools/bin` when it is not already available in `PATH`.
@@ -218,6 +219,7 @@ curl -sX POST http://127.0.0.1:8000/auth/token \
 - `AGENT_HUB_GITHUB_WEBHOOK_MAX_PAYLOAD_BYTES`: maximum accepted webhook payload size in bytes (default: `1000000`)
 - `AGENT_HUB_METRICS_REQUIRE_TOKEN`: require bearer token on `/metrics` (`0` default)
 - `AGENT_HUB_METRICS_BEARER_TOKEN`: bearer token used to access `/metrics`
+- `AGENT_HUB_UI_ENV_PREFILL_ENABLED`: enable `/ui/prefill` env autofill endpoint for loopback clients (`0` default)
 - `AGENT_HUB_GITHUB_WEBHOOK_AUTO_ENQUEUE`: auto-enqueue autopilot job for `issues:opened` webhooks (`0` default)
 
 When `AGENT_HUB_APP_ENV=production`, startup fails fast if critical safety controls are missing (API keys, write/read role auth, JWT secret, webhook secret, metrics auth token, non-sqlite DB, local-path repo access disabled, required test command policy, proxy allowlist when trusted headers are enabled, and placeholder `replace-with` secrets).

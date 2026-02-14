@@ -146,6 +146,28 @@ def _extract_client_ip_from_request(request: Request, settings) -> str:
     return direct_client_ip
 
 
+def _is_loopback_client_host(client_host: str | None) -> bool:
+    if not client_host:
+        return False
+
+    normalized = client_host.strip().lower()
+    if normalized in {"localhost", "testclient"}:
+        return True
+
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def _first_configured_api_key(settings) -> str:
+    for raw_key in settings.api_keys.split(","):
+        candidate = raw_key.strip()
+        if candidate:
+            return candidate
+    return ""
+
+
 def _rate_limit_key_for_request(request: Request, settings) -> str:
     client_ip = _extract_client_ip_from_request(request, settings)
     return f"ip:{client_ip}"
@@ -301,6 +323,25 @@ def health() -> dict[str, str]:
 @app.get("/ui/", response_class=HTMLResponse, include_in_schema=False)
 def api_console() -> HTMLResponse:
     return HTMLResponse(content=API_UI_HTML)
+
+
+@app.get("/ui/prefill", include_in_schema=False)
+def api_console_prefill(request: Request) -> dict[str, str | bool]:
+    settings = get_settings()
+    if not settings.ui_env_prefill_enabled:
+        raise HTTPException(status_code=404, detail="UI env prefill is disabled")
+
+    client_host = request.client.host if request.client else None
+    if not _is_loopback_client_host(client_host):
+        raise HTTPException(status_code=403, detail="UI env prefill is only available from loopback clients")
+
+    return {
+        "base_url": str(request.base_url).rstrip("/"),
+        "api_key": _first_configured_api_key(settings),
+        "metrics_bearer_token": settings.metrics_bearer_token.strip(),
+        "auth_require_roles": settings.auth_require_roles,
+        "auth_require_reads": settings.auth_require_reads,
+    }
 
 
 @app.get("/health/live")

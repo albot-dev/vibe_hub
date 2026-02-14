@@ -19,6 +19,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("AGENT_HUB_AUTH_REQUIRE_READS", "1")
     monkeypatch.setenv("AGENT_HUB_METRICS_REQUIRE_TOKEN", "1")
     monkeypatch.setenv("AGENT_HUB_METRICS_BEARER_TOKEN", "metrics-token-abcdefghijklmnopqrstuvwxyz")
+    monkeypatch.setenv("AGENT_HUB_UI_ENV_PREFILL_ENABLED", "1")
     monkeypatch.setenv("AGENT_HUB_JWT_SECRET", "test-jwt-secret-1234567890-abcdefghijklmnopqrstuvwxyz")
     monkeypatch.setenv("AGENT_HUB_ALLOW_LOCAL_REPO_PATHS", "1")
     monkeypatch.setenv("AGENT_HUB_JOB_WORKER_ENABLED", "0")
@@ -80,6 +81,17 @@ def test_ui_endpoint_remains_public_with_read_auth_enabled(client: TestClient) -
     assert response.status_code == 200
     assert "Agent Hub API Console" in response.text
     assert "Send Request" in response.text
+
+
+def test_ui_prefill_returns_local_env_values(client: TestClient) -> None:
+    response = client.get("/ui/prefill")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["api_key"] == "bootstrap-key"
+    assert payload["auth_require_roles"] is False
+    assert payload["auth_require_reads"] is True
+    assert payload["metrics_bearer_token"] == "metrics-token-abcdefghijklmnopqrstuvwxyz"
 
 
 def test_metrics_endpoint_requires_metrics_bearer_token(client: TestClient) -> None:

@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     github_webhook_max_payload_bytes: int = Field(default=1_000_000, ge=1024, le=20_000_000)
     metrics_require_token: bool = Field(default=False)
     metrics_bearer_token: str = Field(default="")
+    ui_env_prefill_enabled: bool = Field(default=False)
 
     def parsed_api_keys(self) -> set[str]:
         return {key.strip() for key in self.api_keys.split(",") if key.strip()}
