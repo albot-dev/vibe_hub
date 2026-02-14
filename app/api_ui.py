@@ -510,7 +510,7 @@ API_UI_HTML = """<!doctype html>
             }
             lines.push("  --data " + shellEscape(body));
           }
-          curlPreviewEl.textContent = lines.join(" \\\n");
+          curlPreviewEl.textContent = lines.join("\\n");
         } catch (error) {
           curlPreviewEl.textContent = "Preview error: " + error.message;
         }
