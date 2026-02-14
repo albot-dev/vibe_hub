@@ -419,7 +419,7 @@ API_UI_HTML = """<!doctype html>
       }
 
       function shellEscape(value) {
-        return "'" + String(value).replace(/'/g, "'\"'\"'") + "'";
+        return "'" + String(value).replace(/'/g, `'"'"'`) + "'";
       }
 
       function parseExtraHeaders() {
