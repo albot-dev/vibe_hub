@@ -17,6 +17,7 @@ services:
 
   app:
     image: ${AGENT_HUB_IMAGE:?set AGENT_HUB_IMAGE in .env}
+    platform: ${AGENT_HUB_IMAGE_PLATFORM:-linux/amd64}
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -54,6 +55,7 @@ services:
 
   worker:
     image: ${AGENT_HUB_IMAGE:?set AGENT_HUB_IMAGE in .env}
+    platform: ${AGENT_HUB_IMAGE_PLATFORM:-linux/amd64}
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -93,9 +95,10 @@ services:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
-    command:
+    entrypoint:
       - /bin/sh
       - -ec
+    command:
       - |
         : "${AGENT_HUB_METRICS_BEARER_TOKEN:?set AGENT_HUB_METRICS_BEARER_TOKEN in .env}"
         printf '%s' "${AGENT_HUB_METRICS_BEARER_TOKEN}" >/tmp/agent_hub_metrics_bearer_token

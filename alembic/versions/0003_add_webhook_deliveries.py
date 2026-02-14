@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Sequence, Union
 
 from alembic import op
+import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "0003_add_webhook_deliveries"
@@ -19,41 +20,81 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_index(
+    inspector: sa.Inspector,
+    table_name: str,
+    columns: tuple[str, ...],
+    *,
+    unique: bool | None = None,
+) -> bool:
+    for index in inspector.get_indexes(table_name):
+        index_columns = tuple(index.get("column_names") or ())
+        if index_columns != columns:
+            continue
+        if unique is None or bool(index.get("unique")) == unique:
+            return True
+    return False
+
+
+def _has_unique_constraint(inspector: sa.Inspector, table_name: str, columns: tuple[str, ...]) -> bool:
+    for constraint in inspector.get_unique_constraints(table_name):
+        constraint_columns = tuple(constraint.get("column_names") or ())
+        if constraint_columns == columns:
+            return True
+    return False
+
+
 def upgrade() -> None:
-    op.execute(
-        """
-        CREATE TABLE IF NOT EXISTS github_webhook_deliveries (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            delivery_id VARCHAR(255) NOT NULL,
-            event VARCHAR(120) NOT NULL,
-            action VARCHAR(64) NOT NULL,
-            project_id INTEGER,
-            issue_number INTEGER,
-            job_id INTEGER,
-            reason TEXT NOT NULL DEFAULT '',
-            duplicate_count INTEGER NOT NULL DEFAULT 0,
-            created_at DATETIME NOT NULL,
-            updated_at DATETIME NOT NULL,
-            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    table_names = set(inspector.get_table_names())
+    created_table = False
+
+    if "github_webhook_deliveries" not in table_names:
+        op.create_table(
+            "github_webhook_deliveries",
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column("delivery_id", sa.String(length=255), nullable=False),
+            sa.Column("event", sa.String(length=120), nullable=False),
+            sa.Column("action", sa.String(length=64), nullable=False),
+            sa.Column(
+                "project_id",
+                sa.Integer(),
+                sa.ForeignKey("projects.id", ondelete="SET NULL"),
+                nullable=True,
+            ),
+            sa.Column("issue_number", sa.Integer(), nullable=True),
+            sa.Column("job_id", sa.Integer(), nullable=True),
+            sa.Column("reason", sa.Text(), nullable=False, server_default=sa.text("''")),
+            sa.Column("duplicate_count", sa.Integer(), nullable=False, server_default=sa.text("0")),
+            sa.Column("created_at", sa.DateTime(), nullable=False),
+            sa.Column("updated_at", sa.DateTime(), nullable=False),
         )
-        """
-    )
-    op.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS ux_github_webhook_deliveries_delivery_id "
-        "ON github_webhook_deliveries (delivery_id)"
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_github_webhook_deliveries_event "
-        "ON github_webhook_deliveries (event)"
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_github_webhook_deliveries_action "
-        "ON github_webhook_deliveries (action)"
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_github_webhook_deliveries_project_id "
-        "ON github_webhook_deliveries (project_id)"
-    )
+        created_table = True
+
+    has_delivery_unique = _has_index(
+        inspector,
+        "github_webhook_deliveries",
+        ("delivery_id",),
+        unique=True,
+    ) or _has_unique_constraint(inspector, "github_webhook_deliveries", ("delivery_id",))
+
+    if created_table or not has_delivery_unique:
+        op.create_index(
+            "ux_github_webhook_deliveries_delivery_id",
+            "github_webhook_deliveries",
+            ["delivery_id"],
+            unique=True,
+        )
+
+    if created_table or not _has_index(inspector, "github_webhook_deliveries", ("event",)):
+        op.create_index("ix_github_webhook_deliveries_event", "github_webhook_deliveries", ["event"])
+
+    if created_table or not _has_index(inspector, "github_webhook_deliveries", ("action",)):
+        op.create_index("ix_github_webhook_deliveries_action", "github_webhook_deliveries", ["action"])
+
+    if created_table or not _has_index(inspector, "github_webhook_deliveries", ("project_id",)):
+        op.create_index("ix_github_webhook_deliveries_project_id", "github_webhook_deliveries", ["project_id"])
 
 
 def downgrade() -> None:

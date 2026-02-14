@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Sequence, Union
 
 from alembic import op
+import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "0004_add_policy_revisions"
@@ -19,37 +20,51 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_index(inspector: sa.Inspector, table_name: str, columns: tuple[str, ...]) -> bool:
+    for index in inspector.get_indexes(table_name):
+        index_columns = tuple(index.get("column_names") or ())
+        if index_columns == columns:
+            return True
+    return False
+
+
 def upgrade() -> None:
-    op.execute(
-        """
-        CREATE TABLE IF NOT EXISTS automation_policy_revisions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id INTEGER NOT NULL,
-            auto_triage BOOLEAN NOT NULL DEFAULT 1,
-            auto_assign BOOLEAN NOT NULL DEFAULT 1,
-            auto_review BOOLEAN NOT NULL DEFAULT 1,
-            auto_merge BOOLEAN NOT NULL DEFAULT 1,
-            min_review_approvals INTEGER NOT NULL DEFAULT 1,
-            require_test_pass BOOLEAN NOT NULL DEFAULT 1,
-            changed_by VARCHAR(120) NOT NULL DEFAULT 'system',
-            change_reason VARCHAR(255) NOT NULL DEFAULT '',
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    table_names = set(inspector.get_table_names())
+    created_table = False
+
+    if "automation_policy_revisions" not in table_names:
+        op.create_table(
+            "automation_policy_revisions",
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column(
+                "project_id",
+                sa.Integer(),
+                sa.ForeignKey("projects.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
+            sa.Column("auto_triage", sa.Boolean(), nullable=False, server_default=sa.true()),
+            sa.Column("auto_assign", sa.Boolean(), nullable=False, server_default=sa.true()),
+            sa.Column("auto_review", sa.Boolean(), nullable=False, server_default=sa.true()),
+            sa.Column("auto_merge", sa.Boolean(), nullable=False, server_default=sa.true()),
+            sa.Column("min_review_approvals", sa.Integer(), nullable=False, server_default=sa.text("1")),
+            sa.Column("require_test_pass", sa.Boolean(), nullable=False, server_default=sa.true()),
+            sa.Column("changed_by", sa.String(length=120), nullable=False, server_default=sa.text("'system'")),
+            sa.Column("change_reason", sa.String(length=255), nullable=False, server_default=sa.text("''")),
+            sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         )
-        """
-    )
-    op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS ix_automation_policy_revisions_project_id
-        ON automation_policy_revisions (project_id)
-        """
-    )
-    op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS ix_automation_policy_revisions_project_created_at
-        ON automation_policy_revisions (project_id, created_at)
-        """
-    )
+        created_table = True
+
+    if created_table or not _has_index(inspector, "automation_policy_revisions", ("project_id",)):
+        op.create_index("ix_automation_policy_revisions_project_id", "automation_policy_revisions", ["project_id"])
+
+    if created_table or not _has_index(inspector, "automation_policy_revisions", ("project_id", "created_at")):
+        op.create_index(
+            "ix_automation_policy_revisions_project_created_at",
+            "automation_policy_revisions",
+            ["project_id", "created_at"],
+        )
 
     op.execute(
         """

@@ -362,6 +362,7 @@ cp .env.example .env
 - `POSTGRES_PASSWORD`
 - `AGENT_HUB_DATABASE_URL` (keep in sync with `POSTGRES_*`; URL-encode password)
 - `AGENT_HUB_IMAGE` (pin to immutable digest from `.github/workflows/image.yml`, example: `ghcr.io/<owner>/<repo>@sha256:<digest>`)
+- `AGENT_HUB_IMAGE_PLATFORM` (`linux/amd64` default; set `linux/arm64` only if your pinned image digest includes arm64)
 - `AGENT_HUB_COSIGN_CERTIFICATE_IDENTITY_REGEX` (match trusted workflow identity for your repo, e.g. `...@refs/(heads/main|tags/v.*)$`)
 - `AGENT_HUB_COSIGN_CERTIFICATE_OIDC_ISSUER` (typically `https://token.actions.githubusercontent.com`)
 - `AGENT_HUB_API_KEYS`
